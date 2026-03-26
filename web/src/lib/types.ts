@@ -1,5 +1,5 @@
 export interface MessageChunk {
-  type: 'token' | 'tool_start' | 'tool_end' | 'error' | 'done'
+  type: 'token' | 'tool_start' | 'tool_end' | 'thinking' | 'error' | 'done'
   content: string
   tool_name?: string | null
 }
@@ -11,12 +11,30 @@ export interface ToolCall {
   output?: string
 }
 
+export interface Source {
+  type: 'doc' | 'web' | 'file'
+  label: string
+  filename?: string
+  sizeBytes?: number
+  url?: string
+}
+
+export interface AttachmentMeta {
+  id: number
+  filename: string
+  size_bytes: number
+}
+
 export interface ChatMessage {
   id: string
   role: 'human' | 'assistant'
   content: string
   toolCalls?: ToolCall[]
+  thinkingContent?: string
   isStreaming?: boolean
+  hasError?: boolean
+  elapsedMs?: number
+  attachments?: AttachmentMeta[]
 }
 
 export interface Session {

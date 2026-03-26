@@ -63,12 +63,26 @@ async def build_context(
             "chunk_index": row.chunk_index,
         }
 
-    # 6. Buscar títulos dos documentos
+    # 6. Buscar títulos e metadados de fonte dos documentos
     doc_titles_result = await session.execute(
-        text("SELECT id, title FROM documents WHERE id = ANY(:doc_ids)"),
+        text("""
+            SELECT d.id, d.title, s.id AS source_id, s.filename AS source_filename,
+                   COALESCE(s.file_size_bytes, 0) AS source_size_bytes
+            FROM documents d
+            LEFT JOIN sources s ON d.source_id = s.id
+            WHERE d.id = ANY(:doc_ids)
+        """),
         {"doc_ids": ranked_doc_ids},
     )
-    doc_titles: dict[int, str] = {row.id: row.title for row in doc_titles_result}
+    doc_titles: dict[int, str] = {}
+    doc_source_meta: dict[int, dict] = {}
+    for row in doc_titles_result:
+        doc_titles[row.id] = row.title
+        doc_source_meta[row.id] = {
+            "source_id": row.source_id,
+            "source_filename": row.source_filename or "",
+            "source_size_bytes": row.source_size_bytes or 0,
+        }
 
     # 7. Montar conjunto final de chunk ids (para buscar entidades)
     anchor_ids: dict[int, float] = {c["id"]: c["rrf_score"] for c in fused}
@@ -123,11 +137,15 @@ async def build_context(
             total_entities += len(chunk_entities)
 
         if chunks_out:
+            meta = doc_source_meta.get(doc_id, {})
             documents.append({
-                "document_id":    doc_id,
-                "document_title": doc_titles.get(doc_id, ""),
-                "doc_score":      round(doc_scores[doc_id], 6),
-                "chunks":         chunks_out,
+                "document_id":       doc_id,
+                "document_title":    doc_titles.get(doc_id, ""),
+                "doc_score":         round(doc_scores[doc_id], 6),
+                "chunks":            chunks_out,
+                "source_id":         meta.get("source_id"),
+                "source_filename":   meta.get("source_filename", ""),
+                "source_size_bytes": meta.get("source_size_bytes", 0),
             })
             total_chunks += len(chunks_out)
 

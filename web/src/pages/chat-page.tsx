@@ -6,13 +6,25 @@ import { ChatInput } from '@/components/chat/chat-input'
 
 interface LocationState {
   firstMessage?: string
+  pendingFiles?: File[]
 }
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const location = useLocation()
   const state = location.state as LocationState | null
-  const { messages, isStreaming, sendMessage, loadHistory, stopStreaming } = useChat(sessionId ?? '')
+  const {
+    messages,
+    isStreaming,
+    pendingFiles,
+    sendMessage,
+    loadHistory,
+    loadAttachments,
+    stopStreaming,
+    retryLast,
+    addPendingFile,
+    removePendingFile,
+  } = useChat(sessionId ?? '')
   const sentRef = useRef(false)
 
   useEffect(() => {
@@ -20,9 +32,10 @@ export function ChatPage() {
 
     if (state?.firstMessage && !sentRef.current) {
       sentRef.current = true
-      void sendMessage(state.firstMessage)
+      void sendMessage(state.firstMessage, state.pendingFiles ?? [])
     } else if (!state?.firstMessage) {
       void loadHistory()
+      void loadAttachments()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
@@ -38,13 +51,16 @@ export function ChatPage() {
         </p>
       </div>
 
-      <MessageList messages={messages} />
+      <MessageList messages={messages} onRetry={retryLast} />
 
       <ChatInput
         onSend={(text) => void sendMessage(text)}
         onStop={stopStreaming}
         disabled={isStreaming}
         isStreaming={isStreaming}
+        pendingFiles={pendingFiles}
+        onAddFile={addPendingFile}
+        onRemoveFile={removePendingFile}
       />
     </div>
   )

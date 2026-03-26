@@ -6,18 +6,23 @@ import type { ToolCall } from '@/lib/types'
 
 interface ThinkingPanelProps {
   toolCalls: ToolCall[]
+  thinkingContent?: string
   isStreaming: boolean
 }
 
-export function ThinkingPanel({ toolCalls, isStreaming }: ThinkingPanelProps) {
+export function ThinkingPanel({ toolCalls, thinkingContent, isStreaming }: ThinkingPanelProps) {
   const [open, setOpen] = useState(false)
 
-  // Abre automaticamente durante o streaming
-  useEffect(() => {
-    if (isStreaming && toolCalls.length > 0) setOpen(true)
-  }, [isStreaming, toolCalls.length])
+  const hasThinking = !!thinkingContent
+  const hasTools = toolCalls.length > 0
+  const hasContent = hasThinking || hasTools
 
-  if (toolCalls.length === 0) return null
+  // Abre automaticamente durante o streaming quando há conteúdo
+  useEffect(() => {
+    if (isStreaming && hasContent) setOpen(true)
+  }, [isStreaming, hasContent])
+
+  if (!hasContent) return null
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="mb-3">
@@ -31,10 +36,28 @@ export function ThinkingPanel({ toolCalls, isStreaming }: ThinkingPanelProps) {
         )}
       </CollapsibleTrigger>
 
-      <CollapsibleContent className="mt-2 flex flex-col gap-1.5">
-        {toolCalls.map((tc) => (
-          <ToolBadge key={tc.id} tool={tc} />
-        ))}
+      <CollapsibleContent className="mt-2 space-y-2">
+        {/* Texto de raciocínio do modelo (thinking tokens) */}
+        {hasThinking && (
+          <div className="rounded-md border border-border/40 bg-muted/10 px-3 py-2">
+            <p className="text-xs font-medium text-muted-foreground/70 mb-1">Pensamento</p>
+            <p className="text-xs text-muted-foreground/80 whitespace-pre-wrap leading-relaxed">
+              {thinkingContent}
+            </p>
+          </div>
+        )}
+
+        {/* Ferramentas utilizadas */}
+        {hasTools && (
+          <div className="flex flex-col gap-1.5">
+            {hasThinking && (
+              <p className="text-xs font-medium text-muted-foreground/70">Ferramentas</p>
+            )}
+            {toolCalls.map((tc) => (
+              <ToolBadge key={tc.id} tool={tc} />
+            ))}
+          </div>
+        )}
       </CollapsibleContent>
     </Collapsible>
   )

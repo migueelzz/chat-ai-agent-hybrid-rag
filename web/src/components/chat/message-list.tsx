@@ -5,9 +5,10 @@ import type { ChatMessage } from '@/lib/types'
 
 interface MessageListProps {
   messages: ChatMessage[]
+  onRetry?: () => void
 }
 
-export function MessageList({ messages }: MessageListProps) {
+export function MessageList({ messages, onRetry }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -15,13 +16,17 @@ export function MessageList({ messages }: MessageListProps) {
   }, [messages])
 
   return (
-    <div className='flex-1 overflow-scroll'>
+    <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-2xl space-y-6 px-4 py-8">
-        {messages.map((msg) =>
+        {messages.map((msg, idx) =>
           msg.role === 'human' ? (
-            <UserMessage key={msg.id} content={msg.content} />
+            <UserMessage key={msg.id} content={msg.content} attachments={msg.attachments} />
           ) : (
-            <AssistantMessage key={msg.id} message={msg} />
+            <AssistantMessage
+              key={msg.id}
+              message={msg}
+              onRetry={idx === messages.length - 1 ? onRetry : undefined}
+            />
           ),
         )}
         <div ref={bottomRef} />

@@ -9,13 +9,13 @@ export function HomePage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = async (text: string) => {
+  const handleSubmit = async (text: string, files?: File[]) => {
     if (loading) return
     setLoading(true)
     try {
       const { session_id, created_at } = await createSession()
       addSession(session_id, text, created_at)
-      navigate(`/chat/${session_id}`, { state: { firstMessage: text } })
+      navigate(`/chat/${session_id}`, { state: { firstMessage: text, pendingFiles: files ?? [] } })
     } catch {
       setLoading(false)
     }

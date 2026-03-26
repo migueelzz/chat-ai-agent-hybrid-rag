@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
-import { getHistory, streamMessage } from '@/lib/api'
-import type { ChatMessage, ToolCall } from '@/lib/types'
+import { getHistory, streamMessage, uploadAttachment, getAttachments } from '@/lib/api'
+import type { AttachmentMeta, ChatMessage, ToolCall } from '@/lib/types'
 
 function uuid() {
   return crypto.randomUUID()
@@ -9,24 +9,47 @@ function uuid() {
 export function useChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>([])
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const abortRef = useRef<AbortController | null>(null)
+  const lastUserTextRef = useRef<string>('')
 
   const loadHistory = useCallback(async () => {
     try {
-      const history = await getHistory(sessionId)
+      const [history, sessionFiles] = await Promise.all([
+        getHistory(sessionId),
+        getAttachments(sessionId).catch(() => [] as AttachmentMeta[]),
+      ])
       const result: ChatMessage[] = []
       let i = 0
+      let filesAssigned = false
 
       while (i < history.messages.length) {
         const msg = history.messages[i]
 
         if (msg.role === 'human') {
-          result.push({ id: uuid(), role: 'human', content: msg.content })
+          // Strip injected file-context prefix stored by _stream_agent()
+          const PREFIX_MARKER = '\n\nPergunta do usuário: '
+          let content = msg.content
+          let msgAttachments: AttachmentMeta[] | undefined
+
+          if (content.startsWith('[Contexto de arquivos enviados pelo usuário nesta sessão]')) {
+            const markerIdx = content.indexOf(PREFIX_MARKER)
+            if (markerIdx !== -1) {
+              content = content.slice(markerIdx + PREFIX_MARKER.length)
+            }
+            // Attach session files to the first human message that carried the prefix
+            if (!filesAssigned && sessionFiles.length > 0) {
+              msgAttachments = sessionFiles
+              filesAssigned = true
+            }
+          }
+
+          result.push({ id: uuid(), role: 'human', content, attachments: msgAttachments })
           i++
         } else if (msg.role === 'assistant') {
           const toolCalls: ToolCall[] = []
           i++
-          // Tool messages imediatamente seguintes pertencem a esta resposta
           while (i < history.messages.length && history.messages[i].role === 'tool') {
             toolCalls.push({ id: uuid(), name: 'rag_search', status: 'done' })
             i++
@@ -48,14 +71,50 @@ export function useChat(sessionId: string) {
     }
   }, [sessionId])
 
+  const loadAttachments = useCallback(async () => {
+    const list = await getAttachments(sessionId)
+    setAttachments(list)
+  }, [sessionId])
+
+  const addPendingFile = useCallback((file: File) => {
+    setPendingFiles((prev) => {
+      if (prev.some((f) => f.name === file.name)) return prev
+      return [...prev, file]
+    })
+  }, [])
+
+  const removePendingFile = useCallback((filename: string) => {
+    setPendingFiles((prev) => prev.filter((f) => f.name !== filename))
+  }, [])
+
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, initialFiles?: File[]) => {
       if (isStreaming) return
 
+      lastUserTextRef.current = text
+
+      // Fazer upload dos arquivos pendentes primeiro (pendingFiles do estado + initialFiles opcionais)
+      const allPendingFiles = [...(initialFiles ?? []), ...pendingFiles]
+      const uploadedFiles: AttachmentMeta[] = []
+      for (const file of allPendingFiles) {
+        try {
+          const meta = await uploadAttachment(sessionId, file)
+          uploadedFiles.push(meta)
+        } catch {
+          // continua mesmo se um arquivo falhar
+        }
+      }
+      if (uploadedFiles.length > 0) {
+        setAttachments((prev) => [...prev, ...uploadedFiles])
+        setPendingFiles([])
+      }
+
       const assistantId = uuid()
+      const startTime = Date.now()
+
       setMessages((prev) => [
         ...prev,
-        { id: uuid(), role: 'human', content: text },
+        { id: uuid(), role: 'human', content: text, attachments: uploadedFiles.length > 0 ? uploadedFiles : undefined },
         { id: assistantId, role: 'assistant', content: '', toolCalls: [], isStreaming: true },
       ])
       setIsStreaming(true)
@@ -64,6 +123,7 @@ export function useChat(sessionId: string) {
       abortRef.current = controller
 
       let currentContent = ''
+      let currentThinking = ''
       let currentTools: ToolCall[] = []
 
       try {
@@ -72,6 +132,11 @@ export function useChat(sessionId: string) {
             currentContent += chunk.content
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, content: currentContent } : m)),
+            )
+          } else if (chunk.type === 'thinking') {
+            currentThinking += chunk.content
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, thinkingContent: currentThinking } : m)),
             )
           } else if (chunk.type === 'tool_start' && chunk.tool_name) {
             currentTools = [...currentTools, { id: uuid(), name: chunk.tool_name, status: 'running' }]
@@ -90,13 +155,16 @@ export function useChat(sessionId: string) {
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, toolCalls: currentTools } : m)),
             )
-          } else if (chunk.type === 'done' || chunk.type === 'error') {
-            if (chunk.type === 'error') {
-              currentContent += `\n\n_Erro: ${chunk.content}_`
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, content: currentContent } : m)),
-              )
-            }
+          } else if (chunk.type === 'error') {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: chunk.content || 'Erro ao processar resposta.', hasError: true }
+                  : m,
+              ),
+            )
+            break
+          } else if (chunk.type === 'done') {
             break
           }
         }
@@ -105,25 +173,52 @@ export function useChat(sessionId: string) {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, content: '_Erro de conexão com o servidor._' }
+                ? { ...m, content: 'Erro de conexão com o servidor.', hasError: true }
                 : m,
             ),
           )
         }
       } finally {
+        const elapsedMs = Date.now() - startTime
         setMessages((prev) =>
-          prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false } : m)),
+          prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false, elapsedMs } : m)),
         )
         setIsStreaming(false)
         abortRef.current = null
       }
     },
-    [sessionId, isStreaming],
+    [sessionId, isStreaming, pendingFiles],
   )
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort()
   }, [])
 
-  return { messages, isStreaming, sendMessage, loadHistory, stopStreaming }
+  const retryLast = useCallback(() => {
+    if (isStreaming) return
+    const lastText = lastUserTextRef.current
+    if (!lastText) return
+    // Remove a última mensagem do assistente antes de reenviar
+    setMessages((prev) => {
+      const lastAssistant = [...prev].reverse().findIndex((m) => m.role === 'assistant')
+      if (lastAssistant === -1) return prev
+      const idx = prev.length - 1 - lastAssistant
+      return prev.slice(0, idx)
+    })
+    void sendMessage(lastText)
+  }, [isStreaming, sendMessage])
+
+  return {
+    messages,
+    isStreaming,
+    attachments,
+    pendingFiles,
+    sendMessage,
+    loadHistory,
+    loadAttachments,
+    stopStreaming,
+    retryLast,
+    addPendingFile,
+    removePendingFile,
+  }
 }

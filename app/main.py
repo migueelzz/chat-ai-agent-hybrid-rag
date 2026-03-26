@@ -10,11 +10,17 @@ from app.routers import ingest, query, chat
 async def lifespan(app: FastAPI):
     from app.agent.memory import init_checkpointer, close_checkpointer
     from app.agent.agent import get_agent
+    from app.agent.mcp_tools import init_mcp_tools, close_mcp_tools
+    from app.config import settings
 
     await init_checkpointer()
+    if settings.mcp_enabled:
+        await init_mcp_tools()
     await get_agent()
     yield
     await close_checkpointer()
+    if settings.mcp_enabled:
+        await close_mcp_tools()
 
 
 app = FastAPI(title="ATEM RAG API", version="0.2.0", lifespan=lifespan)

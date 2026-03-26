@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.3
     context_window: int = 128000
 
+    # SAP MCP Servers — opcional (requer Node.js e MCP_ENABLED=true)
+    mcp_enabled: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"

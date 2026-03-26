@@ -23,10 +23,12 @@ async def ingest_pdf(
         tmp_path = tmp.name
 
     try:
+        file_size_bytes = os.path.getsize(tmp_path)
+
         # 2. Registrar source
         src = await db.execute(
-            text("INSERT INTO sources(filename, modulo) VALUES(:f, :m) RETURNING id"),
-            {"f": file.filename, "m": modulo},
+            text("INSERT INTO sources(filename, modulo, file_size_bytes) VALUES(:f, :m, :sz) RETURNING id"),
+            {"f": file.filename, "m": modulo, "sz": file_size_bytes},
         )
         source_id = src.scalar()
 
