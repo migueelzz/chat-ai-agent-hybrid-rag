@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { MessageSquare, Plus, SquarePen, X } from 'lucide-react'
+import { MessageSquare, Plus, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -75,6 +75,20 @@ export function NavSidebar({ open, onClose }: NavSidebarProps) {
               )}
             >
               <MessageSquare className="size-4" />
+            </Button>
+          </Link>
+
+          <Link to="/skills" onClick={onClose}>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Skills"
+              className={cn(
+                'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                location.pathname === '/skills' && 'bg-sidebar-accent',
+              )}
+            >
+              <Zap className="size-4" />
             </Button>
           </Link>
         </nav>

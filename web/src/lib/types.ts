@@ -57,3 +57,12 @@ export interface HistoryResponse {
   session_id: string
   messages: HistoryMessage[]
 }
+
+export interface SkillMeta {
+  id: number
+  name: string
+  title: string
+  description: string
+  is_active: boolean
+  created_at: string
+}

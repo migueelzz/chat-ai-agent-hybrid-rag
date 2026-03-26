@@ -70,22 +70,57 @@ async def _load_session_files(session_id: str, db: AsyncSession) -> str:
     return "\n".join(parts)
 
 
+async def _load_skills_index(db: AsyncSession) -> str:
+    """Retorna índice compacto das skills ativas (nome + descrição truncada)."""
+    try:
+        result = await db.execute(
+            text(
+                "SELECT name, description FROM skills WHERE is_active = true "
+                "ORDER BY name LIMIT 20"
+            )
+        )
+        rows = result.fetchall()
+        if not rows:
+            return ""
+        lines = "\n".join(f"- {r.name}: {r.description[:150].rstrip()}" for r in rows)
+        return f"[Skills especializadas disponíveis — chame use_skill(name) quando a pergunta se encaixar]\n{lines}"
+    except Exception:
+        return ""
+
+
 async def _stream_agent(
     session_id: str,
     message: str,
     db: AsyncSession,
+    skill_name: str | None = None,
 ) -> AsyncGenerator[str, None]:
     token = db_session_var.set(db)
     try:
         agent = await get_agent()
         config = {"configurable": {"thread_id": session_id}}
 
-        # Incluir arquivos da sessão como contexto adicional
+        # Construir contexto completo da mensagem
+        ctx_parts: list[str] = []
+
+        # 1. Arquivos da sessão
         files_ctx = await _load_session_files(session_id, db)
         if files_ctx:
-            full_message = f"{files_ctx}\n\nPergunta do usuário: {message}"
+            ctx_parts.append(files_ctx)
+
+        # 2. Skills — invocação manual obriga o agente a chamar use_skill imediatamente;
+        #    sem invocação manual, injeta apenas o índice compacto para auto-detecção.
+        if skill_name:
+            ctx_parts.append(
+                f"INSTRUÇÃO OBRIGATÓRIA: Use a skill '{skill_name}' chamando "
+                f"use_skill('{skill_name}') como PRIMEIRA ação antes de qualquer outra."
+            )
         else:
-            full_message = message
+            skills_index = await _load_skills_index(db)
+            if skills_index:
+                ctx_parts.append(skills_index)
+
+        ctx_parts.append(f"Pergunta do usuário: {message}")
+        full_message = "\n\n".join(ctx_parts)
 
         input_state = {"messages": [HumanMessage(content=full_message)]}
 
@@ -150,7 +185,7 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
 ):
     return StreamingResponse(
-        _stream_agent(session_id, req.message, db),
+        _stream_agent(session_id, req.message, db, req.skill_name),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

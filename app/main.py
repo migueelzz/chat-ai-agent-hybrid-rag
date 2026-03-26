@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import ingest, query, chat
+from app.routers import ingest, query, chat, skills
 
 
 @asynccontextmanager
@@ -36,9 +36,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(ingest.router, prefix="/ingest", tags=["Ingestão"])
-app.include_router(query.router,  prefix="/query",  tags=["Query"])
-app.include_router(chat.router,   prefix="/chat",   tags=["Chat"])
+app.include_router(ingest.router,  prefix="/ingest",  tags=["Ingestão"])
+app.include_router(query.router,   prefix="/query",   tags=["Query"])
+app.include_router(chat.router,    prefix="/chat",    tags=["Chat"])
+app.include_router(skills.router,  prefix="/skills",  tags=["Skills"])
 
 
 @app.get("/")

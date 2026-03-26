@@ -88,7 +88,7 @@ export function useChat(sessionId: string) {
   }, [])
 
   const sendMessage = useCallback(
-    async (text: string, initialFiles?: File[]) => {
+    async (text: string, initialFiles?: File[], skillName?: string) => {
       if (isStreaming) return
 
       lastUserTextRef.current = text
@@ -127,7 +127,7 @@ export function useChat(sessionId: string) {
       let currentTools: ToolCall[] = []
 
       try {
-        for await (const chunk of streamMessage(sessionId, text, controller.signal)) {
+        for await (const chunk of streamMessage(sessionId, text, controller.signal, skillName)) {
           if (chunk.type === 'token') {
             currentContent += chunk.content
             setMessages((prev) =>
@@ -187,7 +187,7 @@ export function useChat(sessionId: string) {
         abortRef.current = null
       }
     },
-    [sessionId, isStreaming, pendingFiles],
+    [sessionId, isStreaming, pendingFiles], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const stopStreaming = useCallback(() => {

@@ -1,10 +1,11 @@
+import asyncio
 import json
 import re
 
 import html2text
 import httpx
 from langchain_core.tools import tool
-from langchain_community.tools import DuckDuckGoSearchRun
+from sqlalchemy import text
 
 from app.agent.context_var import db_session_var
 from app.retrieval.context import build_context
@@ -74,14 +75,22 @@ async def rag_search(query: str) -> str:
 # Ferramenta 2 — Web Search (DuckDuckGo, sem API key)
 # ---------------------------------------------------------------------------
 
-def build_web_search_tool() -> DuckDuckGoSearchRun:
-    return DuckDuckGoSearchRun(
-        name="web_search",
-        description=(
-            "Busca na internet por informações SAP atuais, SAP Notes, patches ou novidades. "
-            "Use apenas quando o rag_search for insuficiente ou quando o usuário pedir explicitamente."
-        ),
-    )
+@tool
+async def web_search(query: str) -> str:
+    """Busca na internet por informações SAP atuais, SAP Notes, patches ou novidades.
+    Use apenas quando o rag_search for insuficiente ou quando o usuário pedir explicitamente."""
+    try:
+        from langchain_community.tools import DuckDuckGoSearchRun  # import local para evitar falha no startup
+
+        _tool = DuckDuckGoSearchRun()
+        loop = asyncio.get_event_loop()
+        result: str = await loop.run_in_executor(None, _tool.run, query)
+        return result
+    except Exception as exc:
+        return (
+            f"Pesquisa web indisponível no momento ({type(exc).__name__}: {exc}). "
+            "Responda com base nos resultados do RAG."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -141,3 +150,25 @@ async def scrape_url(url: str) -> str:
         return "Erro: timeout ao acessar a URL (limite de 15 segundos excedido)."
     except httpx.RequestError as e:
         return f"Erro de conexão ao acessar a URL: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Ferramenta 4 — Skills especializadas (lazy loading)
+# ---------------------------------------------------------------------------
+
+@tool
+async def use_skill(skill_name: str) -> str:
+    """Carrega o conteúdo completo de uma skill especializada para guiar a resposta.
+    Use quando a pergunta do usuário se encaixar em uma das skills listadas no contexto,
+    ou quando receber a instrução OBRIGATÓRIA de usar uma skill específica."""
+    session = db_session_var.get()
+    if session is None:
+        return "Erro interno: sessão de banco de dados não disponível."
+    result = await session.execute(
+        text("SELECT title, content FROM skills WHERE name = :n AND is_active = true"),
+        {"n": skill_name},
+    )
+    skill = result.fetchone()
+    if not skill:
+        return f"Skill '{skill_name}' não encontrada ou inativa."
+    return f"[SKILL: {skill.title}]\n\n{skill.content}"

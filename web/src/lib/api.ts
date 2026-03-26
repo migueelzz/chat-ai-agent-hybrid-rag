@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AttachmentMeta, CreateSessionResponse, HistoryResponse, MessageChunk } from './types'
+import type { AttachmentMeta, CreateSessionResponse, HistoryResponse, MessageChunk, SkillMeta } from './types'
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL as string,
@@ -35,17 +35,39 @@ export async function getAttachments(sessionId: string): Promise<AttachmentMeta[
   }
 }
 
+export async function getSkills(): Promise<SkillMeta[]> {
+  const { data } = await http.get<SkillMeta[]>('/skills/')
+  return data
+}
+
+export async function uploadSkill(file: File): Promise<SkillMeta> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await http.post<SkillMeta>('/skills/', form)
+  return data
+}
+
+export async function deleteSkill(id: number): Promise<void> {
+  await http.delete(`/skills/${id}`)
+}
+
+export async function toggleSkill(id: number): Promise<SkillMeta> {
+  const { data } = await http.patch<SkillMeta>(`/skills/${id}/toggle`)
+  return data
+}
+
 // SSE streaming usa fetch (axios não suporta ReadableStream com async generator)
 export async function* streamMessage(
   sessionId: string,
   message: string,
   signal?: AbortSignal,
+  skillName?: string,
 ): AsyncGenerator<MessageChunk> {
   const base = import.meta.env.VITE_API_BASE_URL as string
   const res = await fetch(`${base}/chat/${sessionId}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, skill_name: skillName ?? null }),
     signal,
   })
 

@@ -1,21 +1,29 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createSession } from '@/lib/api'
+import { createSession, getSkills } from '@/lib/api'
 import { addSession } from '@/lib/sessions'
 import { HomeInput } from '@/components/home/home-input'
 import { SuggestionChips } from '@/components/home/suggestion-chips'
+import type { SkillMeta } from '@/lib/types'
 
 export function HomePage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
+  const [skills, setSkills] = useState<SkillMeta[]>([])
 
-  const handleSubmit = async (text: string, files?: File[]) => {
+  useEffect(() => {
+    getSkills().then(setSkills).catch(() => {})
+  }, [])
+
+  const handleSubmit = async (text: string, files?: File[], skillName?: string) => {
     if (loading) return
     setLoading(true)
     try {
       const { session_id, created_at } = await createSession()
       addSession(session_id, text, created_at)
-      navigate(`/chat/${session_id}`, { state: { firstMessage: text, pendingFiles: files ?? [] } })
+      navigate(`/chat/${session_id}`, {
+        state: { firstMessage: text, pendingFiles: files ?? [], skillName: skillName ?? null },
+      })
     } catch {
       setLoading(false)
     }
@@ -34,7 +42,7 @@ export function HomePage() {
           </p>
         </div>
 
-        <HomeInput onSubmit={handleSubmit} loading={loading} />
+        <HomeInput onSubmit={handleSubmit} loading={loading} skills={skills} />
         <SuggestionChips onSelect={handleSubmit} />
       </div>
     </div>

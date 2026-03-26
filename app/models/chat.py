@@ -9,6 +9,7 @@ class CreateSessionResponse(BaseModel):
 
 class MessageRequest(BaseModel):
     message: str
+    skill_name: str | None = None
 
 
 class MessageChunk(BaseModel):

@@ -1,10 +1,12 @@
-import { BookOpen, Globe, Loader2, Check } from 'lucide-react'
+import { BookOpen, Globe, Loader2, Check, Zap, Link } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ToolCall } from '@/lib/types'
 
 const TOOL_META: Record<string, { icon: typeof BookOpen; label: string }> = {
-  rag_search: { icon: BookOpen, label: 'Buscando na base de conhecimento SAP' },
-  web_search: { icon: Globe, label: 'Pesquisando na web' },
+  rag_search:  { icon: BookOpen, label: 'Buscando na base de conhecimento SAP' },
+  web_search:  { icon: Globe,    label: 'Pesquisando na web' },
+  scrape_url:  { icon: Link,     label: 'Lendo URL' },
+  use_skill:   { icon: Zap,      label: 'Aplicando skill especializada' },
 }
 
 interface ToolBadgeProps {

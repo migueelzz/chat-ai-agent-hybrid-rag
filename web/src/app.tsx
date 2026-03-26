@@ -3,6 +3,7 @@ import { AppLayout } from '@/pages/_layouts/app-layout'
 import { HomePage } from '@/pages/home-page'
 import { ChatsPage } from '@/pages/chats-page'
 import { ChatPage } from '@/pages/chat-page'
+import { SkillsPage } from '@/pages/skills-page'
 
 export function App() {
   return (
@@ -12,6 +13,7 @@ export function App() {
           <Route index element={<HomePage />} />
           <Route path="chats" element={<ChatsPage />} />
           <Route path="chat/:sessionId" element={<ChatPage />} />
+          <Route path="skills" element={<SkillsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
