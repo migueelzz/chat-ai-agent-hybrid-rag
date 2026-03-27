@@ -1,12 +1,10 @@
+# sap-ai-agent-hybrid-rag
+
 ### Backend
 
 ```bash
-
-docker compose up -d
-
 # setup database
-docker cp scripts/schema.sql atem_postgres:/schema.sql
-docker exec atem_postgres psql -U atem -d atem_rag -f /schema.sql
+docker compose up -d
 
 # install dependencies
 pdm install
