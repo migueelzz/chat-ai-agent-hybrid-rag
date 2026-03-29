@@ -4,16 +4,7 @@
 
 <br/>
 
-<table>
-  <tr>
-    <td><img src=".github/assets/preview01.png" alt="Chat interface" /></td>
-    <td><img src=".github/assets/preview02.png" alt="Streaming response" /></td>
-  </tr>
-  <tr>
-    <td><img src=".github/assets/preview03.png" alt="Skills panel" /></td>
-    <td><img src=".github/assets/preview04.png" alt="Knowledge base" /></td>
-  </tr>
-</table>
+<img src=".github/assets/preview01.png" alt="Chat interface" />
 
 <br/>
 
@@ -37,6 +28,15 @@ The **skills system** extends the agent with structured, reusable behavioral tem
 - **Skills system** — Markdown-based behavioral templates with lazy loading; supports multi-phase chain workflows triggered from the UI
 - **Session history** — full conversation persistence per session with file attachment support
 - **LLM-agnostic** — any OpenAI-compatible API works out of the box (OpenAI, Anthropic via LiteLLM, local models)
+
+<br/>
+<img src=".github/assets/preview02.png" alt="Streaming response" />
+<table>
+  <tr>
+    <td><img src=".github/assets/preview03.png" alt="Skills panel" /></td>
+    <td><img src=".github/assets/preview04.png" alt="Knowledge base" /></td>
+  </tr>
+</table>
 
 ---
 
