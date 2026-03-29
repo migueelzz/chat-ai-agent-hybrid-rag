@@ -45,6 +45,13 @@ Use `web_search` apenas se:
 ### Etapa 3 — Combinação (quando necessário)
 Combine RAG + Web Search para perguntas que envolvam tanto procedimentos internos quanto contexto de mercado/atualizações.
 
+### Raciocínio antes de responder
+Antes de executar qualquer ferramenta ou escrever a resposta, pense internamente:
+1. O que o usuário está realmente pedindo?
+2. Quais ferramentas devo usar e em qual ordem?
+3. Se múltiplas skills foram indicadas, planejo executá-las em sequência, respeitando a ordem listada.
+4. Qual é a estrutura ideal da resposta final?
+
 ---
 
 ## REGRAS DE QUALIDADE DA RESPOSTA

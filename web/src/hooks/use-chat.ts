@@ -6,6 +6,9 @@ function uuid() {
   return crypto.randomUUID()
 }
 
+// Mesmo regex do backend — detecta intenção de documento para restaurar isDocument no histórico
+const DOC_INTENT_RE = /\b(documenta[çc][aã]o|documento\s+t[eé]cnico|pesquisa\s+detalhada|pesquisa\s+aprofundada|relat[oó]rio|an[aá]lise\s+detalhada|gere\s+um\s+documento|crie\s+uma?\s+documenta[çc][aã]o)\b/i
+
 export function useChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
@@ -13,6 +16,7 @@ export function useChat(sessionId: string) {
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const abortRef = useRef<AbortController | null>(null)
   const lastUserTextRef = useRef<string>('')
+  const lastSkillNamesRef = useRef<string[] | undefined>(undefined)
 
   const loadHistory = useCallback(async () => {
     try {
@@ -28,18 +32,17 @@ export function useChat(sessionId: string) {
         const msg = history.messages[i]
 
         if (msg.role === 'human') {
-          // Strip injected file-context prefix stored by _stream_agent()
-          const PREFIX_MARKER = '\n\nPergunta do usuário: '
+          // Strip all injected context (_stream_agent sempre termina com "Pergunta do usuário: {texto}")
+          // Isso cobre: arquivos de sessão, skill instructions, web search disabled, etc.
+          const QUESTION_MARKER = 'Pergunta do usuário: '
           let content = msg.content
           let msgAttachments: AttachmentMeta[] | undefined
 
-          if (content.startsWith('[Contexto de arquivos enviados pelo usuário nesta sessão]')) {
-            const markerIdx = content.indexOf(PREFIX_MARKER)
-            if (markerIdx !== -1) {
-              content = content.slice(markerIdx + PREFIX_MARKER.length)
-            }
-            // Attach session files to the first human message that carried the prefix
-            if (!filesAssigned && sessionFiles.length > 0) {
+          const markerIdx = content.indexOf(QUESTION_MARKER)
+          if (markerIdx !== -1) {
+            const hadFiles = content.startsWith('[Contexto de arquivos enviados pelo usuário nesta sessão]')
+            content = content.slice(markerIdx + QUESTION_MARKER.length)
+            if (hadFiles && !filesAssigned && sessionFiles.length > 0) {
               msgAttachments = sessionFiles
               filesAssigned = true
             }
@@ -51,14 +54,17 @@ export function useChat(sessionId: string) {
           const toolCalls: ToolCall[] = []
           i++
           while (i < history.messages.length && history.messages[i].role === 'tool') {
-            toolCalls.push({ id: uuid(), name: 'rag_search', status: 'done' })
+            const toolMsg = history.messages[i]
+            toolCalls.push({ id: uuid(), name: toolMsg.tool_name ?? 'rag_search', status: 'done' })
             i++
           }
+          const prevHumanContent = result.length > 0 ? result[result.length - 1].content : ''
           result.push({
             id: uuid(),
             role: 'assistant',
             content: msg.content,
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            isDocument: DOC_INTENT_RE.test(prevHumanContent),
           })
         } else {
           i++
@@ -88,10 +94,11 @@ export function useChat(sessionId: string) {
   }, [])
 
   const sendMessage = useCallback(
-    async (text: string, initialFiles?: File[], skillName?: string) => {
+    async (text: string, initialFiles?: File[], skillNames?: string[], webSearchEnabled?: boolean) => {
       if (isStreaming) return
 
       lastUserTextRef.current = text
+      lastSkillNamesRef.current = skillNames
 
       // Fazer upload dos arquivos pendentes primeiro (pendingFiles do estado + initialFiles opcionais)
       const allPendingFiles = [...(initialFiles ?? []), ...pendingFiles]
@@ -127,7 +134,7 @@ export function useChat(sessionId: string) {
       let currentTools: ToolCall[] = []
 
       try {
-        for await (const chunk of streamMessage(sessionId, text, controller.signal, skillName)) {
+        for await (const chunk of streamMessage(sessionId, text, controller.signal, skillNames, webSearchEnabled)) {
           if (chunk.type === 'token') {
             currentContent += chunk.content
             setMessages((prev) =>
@@ -139,16 +146,38 @@ export function useChat(sessionId: string) {
               prev.map((m) => (m.id === assistantId ? { ...m, thinkingContent: currentThinking } : m)),
             )
           } else if (chunk.type === 'tool_start' && chunk.tool_name) {
-            currentTools = [...currentTools, { id: uuid(), name: chunk.tool_name, status: 'running' }]
+            let toolInput: Record<string, string> | undefined
+            try {
+              const parsed = JSON.parse(chunk.content)
+              if (parsed && typeof parsed === 'object') {
+                toolInput = Object.fromEntries(
+                  Object.entries(parsed).map(([k, v]) => [k, String(v)]),
+                )
+              }
+            } catch {
+              // conteúdo não é JSON — ignora
+            }
+            currentTools = [...currentTools, { id: uuid(), name: chunk.tool_name, status: 'running', toolInput }]
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, toolCalls: currentTools } : m)),
             )
           } else if (chunk.type === 'tool_end' && chunk.tool_name) {
+            const META_RE = /<!--SOURCES_META:(\[.*?\])-->/s
+            let sourceDocs: Array<{ filename: string }> | undefined
+            const metaMatch = META_RE.exec(chunk.content ?? '')
+            if (metaMatch) {
+              try {
+                const docs = JSON.parse(metaMatch[1]) as Array<{ filename: string }>
+                sourceDocs = docs.filter((d) => d.filename)
+              } catch {
+                // ignora parse error
+              }
+            }
             let patched = false
             currentTools = currentTools.map((tc) => {
               if (!patched && tc.name === chunk.tool_name && tc.status === 'running') {
                 patched = true
-                return { ...tc, status: 'done' as const, output: chunk.content }
+                return { ...tc, status: 'done' as const, output: chunk.content, sourceDocs }
               }
               return tc
             })
@@ -159,12 +188,30 @@ export function useChat(sessionId: string) {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: chunk.content || 'Erro ao processar resposta.', hasError: true }
+                  ? {
+                      ...m,
+                      content: chunk.content || 'Erro ao processar resposta.',
+                      hasError: true,
+                      ...(chunk.next_skill != null && { nextSkill: chunk.next_skill }),
+                    }
                   : m,
               ),
             )
             break
           } else if (chunk.type === 'done') {
+            if (chunk.is_document || chunk.next_skill) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        ...(chunk.is_document && { isDocument: true }),
+                        ...(chunk.next_skill && { nextSkill: chunk.next_skill }),
+                      }
+                    : m,
+                ),
+              )
+            }
             break
           }
         }
@@ -194,6 +241,13 @@ export function useChat(sessionId: string) {
     abortRef.current?.abort()
   }, [])
 
+  const sendNextStep = useCallback(
+    (skillName: string, webSearchEnabled = true) => {
+      void sendMessage('Continuar análise', undefined, [skillName], webSearchEnabled)
+    },
+    [sendMessage],
+  )
+
   const retryLast = useCallback(() => {
     if (isStreaming) return
     const lastText = lastUserTextRef.current
@@ -205,7 +259,7 @@ export function useChat(sessionId: string) {
       const idx = prev.length - 1 - lastAssistant
       return prev.slice(0, idx)
     })
-    void sendMessage(lastText)
+    void sendMessage(lastText, undefined, lastSkillNamesRef.current)
   }, [isStreaming, sendMessage])
 
   return {
@@ -214,6 +268,7 @@ export function useChat(sessionId: string) {
     attachments,
     pendingFiles,
     sendMessage,
+    sendNextStep,
     loadHistory,
     loadAttachments,
     stopStreaming,

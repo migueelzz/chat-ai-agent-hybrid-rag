@@ -2,6 +2,8 @@ export interface MessageChunk {
   type: 'token' | 'tool_start' | 'tool_end' | 'thinking' | 'error' | 'done'
   content: string
   tool_name?: string | null
+  is_document?: boolean
+  next_skill?: string | null
 }
 
 export interface ToolCall {
@@ -9,6 +11,8 @@ export interface ToolCall {
   name: string
   status: 'running' | 'done'
   output?: string
+  toolInput?: Record<string, string>
+  sourceDocs?: Array<{ filename: string }>
 }
 
 export interface Source {
@@ -35,6 +39,8 @@ export interface ChatMessage {
   hasError?: boolean
   elapsedMs?: number
   attachments?: AttachmentMeta[]
+  isDocument?: boolean
+  nextSkill?: string | null
 }
 
 export interface Session {
@@ -51,6 +57,7 @@ export interface CreateSessionResponse {
 export interface HistoryMessage {
   role: 'human' | 'assistant' | 'tool'
   content: string
+  tool_name?: string | null
 }
 
 export interface HistoryResponse {

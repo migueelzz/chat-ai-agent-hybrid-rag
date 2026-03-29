@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
 import { useChat } from '@/hooks/use-chat'
 import { MessageList } from '@/components/chat/message-list'
 import { ChatInput } from '@/components/chat/chat-input'
-import { getSkills } from '@/lib/api'
+import { extractDocument, getSkills } from '@/lib/api'
+import { getThinkingEnabled, setThinkingEnabled, getWebSearchEnabled, setWebSearchEnabled } from '@/lib/prefs'
 import type { SkillMeta } from '@/lib/types'
 
 interface LocationState {
   firstMessage?: string
   pendingFiles?: File[]
-  skillName?: string | null
+  skillNames?: string[]
+  webSearchEnabled?: boolean
 }
 
 export function ChatPage() {
@@ -21,6 +23,7 @@ export function ChatPage() {
     isStreaming,
     pendingFiles,
     sendMessage,
+    sendNextStep,
     loadHistory,
     loadAttachments,
     stopStreaming,
@@ -30,6 +33,8 @@ export function ChatPage() {
   } = useChat(sessionId ?? '')
   const sentRef = useRef(false)
   const [skills, setSkills] = useState<SkillMeta[]>([])
+  const [thinkingEnabled, setThinkingEnabledState] = useState(getThinkingEnabled)
+  const [webSearchEnabled, setWebSearchEnabledState] = useState(getWebSearchEnabled)
 
   useEffect(() => {
     getSkills().then(setSkills).catch(() => {})
@@ -40,13 +45,30 @@ export function ChatPage() {
 
     if (state?.firstMessage && !sentRef.current) {
       sentRef.current = true
-      void sendMessage(state.firstMessage, state.pendingFiles ?? [], state.skillName ?? undefined)
+      void sendMessage(state.firstMessage, state.pendingFiles ?? [], state.skillNames ?? undefined, state.webSearchEnabled ?? true)
     } else if (!state?.firstMessage) {
       void loadHistory()
       void loadAttachments()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
+
+  const handleExtractDocument = useCallback(
+    (content: string) => extractDocument(sessionId!, content),
+    [sessionId],
+  )
+
+  const toggleThinking = () => {
+    const next = !thinkingEnabled
+    setThinkingEnabledState(next)
+    setThinkingEnabled(next)
+  }
+
+  const toggleWebSearch = () => {
+    const next = !webSearchEnabled
+    setWebSearchEnabledState(next)
+    setWebSearchEnabled(next)
+  }
 
   if (!sessionId) return null
 
@@ -59,10 +81,16 @@ export function ChatPage() {
         </p>
       </div>
 
-      <MessageList messages={messages} onRetry={retryLast} />
+      <MessageList
+        messages={messages}
+        onRetry={retryLast}
+        thinkingEnabled={thinkingEnabled}
+        onExtractDocument={handleExtractDocument}
+        onSendNextStep={(skillName) => sendNextStep(skillName, webSearchEnabled)}
+      />
 
       <ChatInput
-        onSend={(text, skillName) => void sendMessage(text, undefined, skillName)}
+        onSend={(text, skillNames, wsEnabled) => void sendMessage(text, undefined, skillNames, wsEnabled)}
         onStop={stopStreaming}
         disabled={isStreaming}
         isStreaming={isStreaming}
@@ -70,6 +98,10 @@ export function ChatPage() {
         onAddFile={addPendingFile}
         onRemoveFile={removePendingFile}
         skills={skills}
+        thinkingEnabled={thinkingEnabled}
+        onThinkingToggle={toggleThinking}
+        webSearchEnabled={webSearchEnabled}
+        onWebSearchToggle={toggleWebSearch}
       />
     </div>
   )

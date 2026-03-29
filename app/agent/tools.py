@@ -156,6 +156,9 @@ async def scrape_url(url: str) -> str:
 # Ferramenta 4 — Skills especializadas (lazy loading)
 # ---------------------------------------------------------------------------
 
+_MAX_SKILL_CHARS = 6_000
+
+
 @tool
 async def use_skill(skill_name: str) -> str:
     """Carrega o conteúdo completo de uma skill especializada para guiar a resposta.
@@ -171,4 +174,7 @@ async def use_skill(skill_name: str) -> str:
     skill = result.fetchone()
     if not skill:
         return f"Skill '{skill_name}' não encontrada ou inativa."
-    return f"[SKILL: {skill.title}]\n\n{skill.content}"
+    content = skill.content
+    if len(content) > _MAX_SKILL_CHARS:
+        content = content[:_MAX_SKILL_CHARS] + "\n\n[... skill truncada após 8000 caracteres ...]"
+    return f"[SKILL: {skill.title}]\n\n{content}"

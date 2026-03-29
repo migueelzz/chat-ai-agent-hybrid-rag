@@ -56,18 +56,28 @@ export async function toggleSkill(id: number): Promise<SkillMeta> {
   return data
 }
 
+export async function extractDocument(sessionId: string, content: string): Promise<string> {
+  const { data } = await http.post<{ document: string }>(`/chat/${sessionId}/extract-document`, { content })
+  return data.document
+}
+
 // SSE streaming usa fetch (axios não suporta ReadableStream com async generator)
 export async function* streamMessage(
   sessionId: string,
   message: string,
   signal?: AbortSignal,
-  skillName?: string,
+  skillNames?: string[],
+  webSearchEnabled?: boolean,
 ): AsyncGenerator<MessageChunk> {
   const base = import.meta.env.VITE_API_BASE_URL as string
   const res = await fetch(`${base}/chat/${sessionId}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, skill_name: skillName ?? null }),
+    body: JSON.stringify({
+      message,
+      skill_names: skillNames ?? [],
+      web_search_enabled: webSearchEnabled ?? true,
+    }),
     signal,
   })
 

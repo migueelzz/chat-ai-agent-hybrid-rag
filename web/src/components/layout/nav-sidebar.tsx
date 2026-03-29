@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { MessageSquare, Plus, X, Zap } from 'lucide-react'
+import { LoaderPinwheel, MessageSquare, Plus, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -34,8 +34,9 @@ export function NavSidebar({ open, onClose }: NavSidebarProps) {
         {/* Logo / close button on mobile */}
         <div className="mb-4 flex flex-col items-center gap-2">
           <Link to="/" onClick={onClose}>
-            <div className="flex items-center justify-center rounded-lg select-none">
-              <img src="/prime-control-logo-background.png" className="object-cover size-8" alt="Logo" />
+            <div className="flex items-center justify-center rounded-lg select-none size-8 bg-white">
+              <LoaderPinwheel className='size-4 text-zinc-900' />
+              {/* <img src="/prime-control-logo-background.png" className="object-cover size-8" alt="Logo" /> */}
             </div>
           </Link>
           <Button

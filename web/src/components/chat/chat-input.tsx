@@ -1,7 +1,20 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
-import { ArrowUp, Square, Paperclip, X, FileText, Zap } from 'lucide-react'
+import { ArrowUp, Square, Paperclip, X, FileText, Zap, Brain, Globe, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import type { SkillMeta } from '@/lib/types'
 
@@ -14,7 +27,7 @@ function formatBytes(bytes: number): string {
 }
 
 interface ChatInputProps {
-  onSend: (text: string, skillName?: string) => void
+  onSend: (text: string, skillNames?: string[], webSearchEnabled?: boolean) => void
   onStop?: () => void
   disabled?: boolean
   isStreaming?: boolean
@@ -22,6 +35,10 @@ interface ChatInputProps {
   onAddFile?: (file: File) => void
   onRemoveFile?: (filename: string) => void
   skills?: SkillMeta[]
+  thinkingEnabled?: boolean
+  onThinkingToggle?: () => void
+  webSearchEnabled?: boolean
+  onWebSearchToggle?: () => void
 }
 
 export function ChatInput({
@@ -33,15 +50,19 @@ export function ChatInput({
   onAddFile,
   onRemoveFile,
   skills = [],
+  thinkingEnabled = true,
+  onThinkingToggle,
+  webSearchEnabled = true,
+  onWebSearchToggle,
 }: ChatInputProps) {
   const [value, setValue] = useState('')
   const [isDragging, setIsDragging] = useState(false)
-  const [showLongTextBanner, setShowLongTextBanner] = useState(false)
-  const [selectedSkill, setSelectedSkill] = useState<SkillMeta | null>(null)
+  const [selectedSkills, setSelectedSkills] = useState<SkillMeta[]>([])
   const [showSkillPicker, setShowSkillPicker] = useState(false)
   const [skillFilter, setSkillFilter] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const navigate = useNavigate()
 
   const filteredSkills = skills.filter(
     (s) =>
@@ -53,7 +74,7 @@ export function ChatInput({
 
   const selectSkill = (skill: SkillMeta) => {
     setValue('')
-    setSelectedSkill(skill)
+    setSelectedSkills((prev) => (prev.some((s) => s.id === skill.id) ? prev : [...prev, skill]))
     setShowSkillPicker(false)
     setSkillFilter('')
     if (textareaRef.current) {
@@ -62,27 +83,29 @@ export function ChatInput({
     }
   }
 
-  const submit = (text?: string) => {
-    const textToSend = (text ?? value).trim()
-    if (!textToSend || disabled) return
-    setValue('')
-    setShowLongTextBanner(false)
-    setShowSkillPicker(false)
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    const skillName = selectedSkill?.name
-    setSelectedSkill(null)
-    onSend(textToSend, skillName)
-  }
-
-  const convertToFile = () => {
-    const text = value.trim()
+  const convertToFile = (rawText?: string) => {
+    const text = (rawText ?? value).trim()
     if (!text || !onAddFile) return
     const blob = new Blob([text], { type: 'text/plain' })
     const file = new File([blob], `mensagem-${Date.now()}.txt`, { type: 'text/plain' })
     onAddFile(file)
     setValue('')
-    setShowLongTextBanner(false)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
+  }
+
+  const submit = (text?: string) => {
+    const textToSend = (text ?? value).trim()
+    if (!textToSend || disabled) return
+    if (textToSend.length > LONG_TEXT_THRESHOLD && onAddFile) {
+      convertToFile(textToSend)
+      return
+    }
+    setValue('')
+    setShowSkillPicker(false)
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    const skillNames = selectedSkills.length > 0 ? selectedSkills.map((s) => s.name) : undefined
+    setSelectedSkills([])
+    onSend(textToSend, skillNames, webSearchEnabled)
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -100,16 +123,16 @@ export function ChatInput({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (value.trim().length > LONG_TEXT_THRESHOLD) {
-        setShowLongTextBanner(true)
-        return
-      }
       submit()
     }
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
+    if (val.trim().length > LONG_TEXT_THRESHOLD && onAddFile) {
+      convertToFile(val)
+      return
+    }
     setValue(val)
     if (val.startsWith('/')) {
       const filter = val.slice(1).toLowerCase()
@@ -126,7 +149,6 @@ export function ChatInput({
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`
-    if (el.value.length <= LONG_TEXT_THRESHOLD) setShowLongTextBanner(false)
   }
 
   const addFile = (file: File) => {
@@ -155,47 +177,60 @@ export function ChatInput({
     if (file) addFile(file)
   }
 
-  const hasBadges = pendingFiles.length > 0 || !!selectedSkill
+  const hasBadges =
+    pendingFiles.length > 0 || selectedSkills.length > 0 || thinkingEnabled || webSearchEnabled
 
   return (
     <div className="bg-background px-4 py-4">
       <div className="mx-auto max-w-2xl space-y-2">
-        {/* Banner: texto longo */}
-        {showLongTextBanner && (
-          <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
-            <span>Mensagem longa detectada. Deseja converter em arquivo .txt?</span>
-            <div className="flex items-center gap-2 ml-3">
-              <button onClick={convertToFile} className="font-medium hover:underline">
-                Converter
-              </button>
-              <button
-                onClick={() => {
-                  setShowLongTextBanner(false)
-                  submit()
-                }}
-                className="text-muted-foreground hover:underline"
-              >
-                Enviar assim mesmo
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Badges: skill selecionada + arquivos pendentes */}
+        {/* Badges */}
         {hasBadges && (
           <div className="flex flex-wrap gap-1.5">
-            {selectedSkill && (
-              <div className="flex items-center gap-1.5 rounded-md border border-sidebar-primary/30 bg-sidebar-primary/10 px-2.5 py-1 text-xs text-sidebar-primary">
-                <Zap className="size-3 shrink-0" />
-                <span className="max-w-48 truncate font-medium">{selectedSkill.title}</span>
+            {thinkingEnabled && (
+              <div className="flex items-center gap-1.5 rounded-md border border-muted-foreground/20 bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground">
+                <Brain className="size-3 shrink-0" />
+                <span className="font-medium">Pensamento</span>
                 <button
-                  onClick={() => setSelectedSkill(null)}
-                  className="ml-0.5 rounded transition-colors hover:text-sidebar-primary/60"
+                  onClick={onThinkingToggle}
+                  aria-label="Desativar pensamento"
+                  className="ml-0.5 rounded transition-colors hover:text-foreground"
                 >
                   <X className="size-3" />
                 </button>
               </div>
             )}
+
+            {webSearchEnabled && (
+              <div className="flex items-center gap-1.5 rounded-md border border-muted-foreground/20 bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground">
+                <Globe className="size-3 shrink-0" />
+                <span className="font-medium">Pesquisa na web</span>
+                <button
+                  onClick={onWebSearchToggle}
+                  aria-label="Desativar pesquisa na web"
+                  className="ml-0.5 rounded transition-colors hover:text-foreground"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            )}
+
+            {selectedSkills.map((skill) => (
+              <div
+                key={skill.id}
+                className="flex items-center gap-1.5 rounded-md border border-sidebar-primary/30 bg-sidebar-primary/10 px-2.5 py-1 text-xs text-sidebar-primary"
+              >
+                <Zap className="size-3 shrink-0" />
+                <span className="max-w-48 truncate font-medium">{skill.title}</span>
+                <button
+                  onClick={() => setSelectedSkills((prev) => prev.filter((s) => s.id !== skill.id))}
+                  aria-label="Remover skill"
+                  className="ml-0.5 rounded transition-colors hover:text-sidebar-primary/60"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+
             {pendingFiles.map((f) => (
               <div
                 key={f.name}
@@ -206,6 +241,7 @@ export function ChatInput({
                 <span className="text-muted-foreground/50">· {formatBytes(f.size)}</span>
                 <button
                   onClick={() => onRemoveFile?.(f.name)}
+                  aria-label={`Remover ${f.name}`}
                   className="ml-0.5 rounded hover:text-foreground transition-colors"
                 >
                   <X className="size-3" />
@@ -224,7 +260,6 @@ export function ChatInput({
                 <button
                   key={skill.id}
                   onMouseDown={(e) => {
-                    // Prevent textarea blur before click registers
                     e.preventDefault()
                     selectSkill(skill)
                   }}
@@ -250,23 +285,111 @@ export function ChatInput({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             className={cn(
-              'flex items-end gap-2 rounded-2xl border bg-card px-4 py-3 transition-all',
+              'flex items-center gap-2 rounded-2xl border bg-card px-4 py-3 transition-all',
               'focus-within:border-ring/50 focus-within:ring-1 focus-within:ring-ring/20',
               isDragging
                 ? 'border-sidebar-primary/60 bg-sidebar-primary/5'
                 : 'border-border',
             )}
           >
-            {/* Botão de arquivo */}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={disabled && !isStreaming}
-              title="Anexar arquivo .txt"
-              className="mb-0.5 shrink-0 rounded p-0.5 text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-30"
-            >
-              <Paperclip className="size-4" />
-            </button>
+            {/* Botão de opções */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={disabled && !isStreaming}
+                  title="Opções"
+                  aria-label="Abrir opções"
+                  className="shrink-0"
+                >
+                  <Plus className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent side="top" align="start" className="w-60">
+                <DropdownMenuItem
+                  onSelect={() => {
+                    // Abre o seletor de arquivo após o menu fechar
+                    setTimeout(() => fileInputRef.current?.click(), 0)
+                  }}
+                >
+                  <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
+                  Anexar arquivo (.txt)
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuCheckboxItem
+                  checked={thinkingEnabled}
+                  onCheckedChange={onThinkingToggle}
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <Brain className="size-3.5 shrink-0 text-muted-foreground" />
+                  Pensamento
+                </DropdownMenuCheckboxItem>
+
+                <DropdownMenuCheckboxItem
+                  checked={webSearchEnabled}
+                  onCheckedChange={onWebSearchToggle}
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <Globe className="size-3.5 shrink-0 text-muted-foreground" />
+                  Pesquisa na web
+                </DropdownMenuCheckboxItem>
+
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Zap className="size-3.5 shrink-0 text-muted-foreground" />
+                      Habilidades
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                      <DropdownMenuSubContent className="w-64 p-0">
+                        <div className="max-h-64 overflow-y-auto p-1">
+                          {skills.filter((s) => s.is_active).length === 0 ? (
+                            <div className="px-3 py-4 text-center">
+                              <p className="text-xs text-muted-foreground">Nenhuma habilidade ativa</p>
+                            </div>
+                          ) : (
+                            skills.filter((s) => s.is_active).map((skill) => (
+                              <DropdownMenuCheckboxItem
+                                key={skill.id}
+                                checked={selectedSkills.some((s) => s.id === skill.id)}
+                                onCheckedChange={() =>
+                                  setSelectedSkills((prev) =>
+                                    prev.some((s) => s.id === skill.id)
+                                      ? prev.filter((s) => s.id !== skill.id)
+                                      : [...prev, skill],
+                                  )
+                                }
+                                onSelect={(e) => e.preventDefault()}
+                                className="items-start py-2"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-medium">{skill.title}</p>
+                                </div>
+                              </DropdownMenuCheckboxItem>
+                            ))
+                          )}
+                        </div>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-muted-foreground"
+                          onSelect={() => navigate('/skills')}
+                        >
+                          <Settings className="size-3.5 shrink-0" />
+                          Gerenciar habilidades
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                  </DropdownMenuSub>
+                </>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <input
               ref={fileInputRef}
               type="file"
@@ -291,7 +414,7 @@ export function ChatInput({
               disabled={disabled && !isStreaming}
               rows={1}
               className={cn(
-                'flex-1 resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/50',
+                'flex-1 rounded-none resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/50',
                 'min-h-6 max-h-50',
               )}
             />
@@ -303,6 +426,7 @@ export function ChatInput({
                 onClick={onStop}
                 className="shrink-0 text-muted-foreground hover:text-foreground"
                 title="Parar"
+                aria-label="Parar geração"
               >
                 <Square className="size-3.5 fill-current" />
               </Button>
@@ -312,6 +436,7 @@ export function ChatInput({
                 onClick={() => submit()}
                 disabled={!value.trim() || disabled}
                 title="Enviar (Enter)"
+                aria-label="Enviar mensagem"
                 className="shrink-0"
               >
                 <ArrowUp className="size-3.5" />

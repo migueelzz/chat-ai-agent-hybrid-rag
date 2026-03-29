@@ -1,4 +1,7 @@
+import re
+
 from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 
 from app.agent.memory import get_checkpointer  # sync após init
@@ -8,6 +11,49 @@ from app.agent.mcp_tools import get_mcp_tools
 from app.config import settings
 
 _agent = None
+
+# Colapsa runs de 15+ espaços para um único espaço (padding de colunas em tabelas Markdown).
+# Reduz tokens desperdiçados em mensagens de ferramentas que o agente recebe de volta.
+_EXCESS_SPACES = re.compile(r' {15,}')
+
+
+def _compress_skill_history(state: dict) -> dict:
+    """
+    pre_model_hook — executado antes de cada chamada ao LLM.
+    Retorna {"llm_input_messages": ...} com ToolMessages de skills antigas
+    comprimidas ao título, economizando tokens sem alterar o estado persistido.
+    A skill mais recente mantém o conteúdo completo (com espaços excessivos colapsados).
+    """
+    messages = state.get("messages", [])
+
+    skill_indices = [
+        i for i, m in enumerate(messages)
+        if isinstance(m, ToolMessage) and getattr(m, 'name', '') == 'use_skill'
+    ]
+    if not skill_indices:
+        return {"llm_input_messages": messages}
+
+    to_compress = set(skill_indices[:-1])  # todas menos a última
+    result = []
+    for i, msg in enumerate(messages):
+        if not isinstance(msg, ToolMessage):
+            result.append(msg)
+            continue
+
+        content = str(msg.content)
+        if i in to_compress:
+            # Mantém os primeiros 600 chars para preservar instruções de fluxo/orquestração
+            content = content[:600].rstrip() + "\n\n[... conteúdo resumido — skill já processada ...]"
+        else:
+            # Colapsa padding excessivo de espaços na skill mais recente
+            content = _EXCESS_SPACES.sub(' ', content)
+
+        result.append(ToolMessage(
+            content=content,
+            tool_call_id=msg.tool_call_id,
+            name=msg.name,
+        ))
+    return {"llm_input_messages": result}
 
 
 async def get_agent():
@@ -35,5 +81,6 @@ async def get_agent():
             tools=tools,
             checkpointer=checkpointer,
             prompt=SYSTEM_PROMPT,
+            pre_model_hook=_compress_skill_history,
         )
     return _agent

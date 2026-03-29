@@ -1,22 +1,100 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Children, isValidElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { Copy, Check, RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
+import { Copy, Check, RefreshCw, AlertCircle, Loader2, Download, FileCode, FileText, Play, ChevronRight, BookOpen } from 'lucide-react'
 import { ThinkingPanel } from './thinking-panel'
 import { SourcesPanel } from './sources-panel'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
+import { downloadAsMarkdown, downloadAsPdf } from '@/lib/download'
 import type { ChatMessage } from '@/lib/types'
 import { cn } from '@/lib/utils'
+
+// Labels legíveis para skills de chains conhecidas
+const SKILL_STEP_LABELS: Record<string, string> = {
+  'cds-structural-analysis': 'Análise Estrutural',
+  'cds-behavior-analysis': 'Análise Comportamental',
+  'cds-context-inference': 'Inferência de Contexto',
+  'cds-doc-generator': 'Gerar Documento Final',
+}
+
+function formatSkillLabel(name: string): string {
+  return name
+    .split('-')
+    .filter((p) => p !== 'cds')
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join(' ')
+}
 
 interface AssistantMessageProps {
   message: ChatMessage
   onRetry?: () => void
+  thinkingEnabled?: boolean
+  onExtractDocument?: (content: string) => Promise<string>
+  onSendNextStep?: (skillName: string) => void
+  accumulatedDocument?: string
 }
 
 function formatElapsed(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}s`
+}
+
+function DownloadMenu({
+  content,
+  isDocument,
+  onExtractDocument,
+  label,
+  icon,
+}: {
+  content: string
+  isDocument?: boolean
+  onExtractDocument?: (content: string) => Promise<string>
+  label?: string
+  icon?: React.ReactNode
+}) {
+  const [loading, setLoading] = useState(false)
+
+  const handlePdf = async () => {
+    setLoading(true)
+    try {
+      const clean = onExtractDocument ? await onExtractDocument(content) : content
+      await downloadAsPdf(clean)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          disabled={loading}
+          title={label ?? 'Baixar resposta'}
+          className="rounded p-1 text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="size-3.5 animate-spin" /> : (icon ?? <Download className="size-3.5" />)}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="bottom">
+        <DropdownMenuItem onClick={() => downloadAsMarkdown(content)}>
+          <FileCode className="size-4" /> Baixar como Markdown
+        </DropdownMenuItem>
+        {isDocument && (
+          <DropdownMenuItem onClick={() => void handlePdf()}>
+            <FileText className="size-4" /> Baixar como PDF
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -39,8 +117,8 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-export function AssistantMessage({ message, onRetry }: AssistantMessageProps) {
-  const { content, toolCalls = [], thinkingContent, isStreaming = false, hasError, elapsedMs } = message
+export function AssistantMessage({ message, onRetry, thinkingEnabled = true, onExtractDocument, onSendNextStep, accumulatedDocument }: AssistantMessageProps) {
+  const { content, toolCalls = [], thinkingContent, isStreaming = false, hasError, elapsedMs, isDocument, nextSkill } = message
 
   // Timer em tempo real durante o streaming
   const [liveElapsed, setLiveElapsed] = useState(0)
@@ -61,7 +139,7 @@ export function AssistantMessage({ message, onRetry }: AssistantMessageProps) {
 
   return (
     <div className="group flex flex-col gap-0 max-w-[85%]">
-      <ThinkingPanel toolCalls={toolCalls} thinkingContent={thinkingContent} isStreaming={isStreaming} />
+      <ThinkingPanel toolCalls={toolCalls} thinkingContent={thinkingContent} isStreaming={isStreaming} visible={thinkingEnabled} />
 
       {/* Spinner de loading inicial */}
       {isLoadingInitial && (
@@ -95,21 +173,26 @@ export function AssistantMessage({ message, onRetry }: AssistantMessageProps) {
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
-                code({ className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className ?? '')
-                  const isInline = !match
-                  return isInline ? (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  ) : (
+                // pre é chamado APENAS para code blocks cercados por ``` (nunca para inline code)
+                // Isso resolve a ambiguidade do react-markdown v10 onde `code` recebe tanto
+                // inline quanto block, tornando impossível distingui-los sem o prop `inline` (removido em v10)
+                pre({ children }) {
+                  const codeEl = Children.toArray(children).find(
+                    (el): el is ReactElement<{ className?: string; children?: ReactNode }> =>
+                      isValidElement(el) && el.type === 'code',
+                  )
+                  if (!codeEl) return <pre>{children}</pre>
+                  const lang = /language-(\w+)/.exec(codeEl.props.className ?? '')
+                  const raw = codeEl.props.children
+                  const codeStr = (Array.isArray(raw) ? raw.join('') : String(raw ?? '')).replace(/\n$/, '')
+                  return (
                     <SyntaxHighlighter
                       style={oneDark}
-                      language={match[1]}
+                      language={lang?.[1] ?? 'text'}
                       PreTag="div"
                       customStyle={{ margin: 0, borderRadius: '0.5rem', fontSize: '0.82rem' }}
                     >
-                      {String(children).replace(/\n$/, '')}
+                      {codeStr}
                     </SyntaxHighlighter>
                   )
                 },
@@ -131,6 +214,17 @@ export function AssistantMessage({ message, onRetry }: AssistantMessageProps) {
             {content && !hasError && (
               <>
                 <CopyButton text={content} />
+                {!isStreaming && <DownloadMenu content={content} isDocument={isDocument} onExtractDocument={onExtractDocument} />}
+                {/* Download da análise completa (acumulada) — aparece apenas na última fase */}
+                {!isStreaming && accumulatedDocument && (
+                  <DownloadMenu
+                    content={accumulatedDocument}
+                    isDocument={true}
+                    onExtractDocument={onExtractDocument}
+                    label="Baixar análise completa"
+                    icon={<BookOpen className="size-3.5" />}
+                  />
+                )}
                 {!isStreaming && onRetry && (
                   <button
                     onClick={onRetry}
@@ -156,6 +250,20 @@ export function AssistantMessage({ message, onRetry }: AssistantMessageProps) {
             </span>
           )}
         </div>
+      )}
+
+      {/* Chip de sugestão — próxima etapa da cadeia; visível inclusive após erro (permite retry da fase) */}
+      {nextSkill && !isStreaming && (
+        <button
+          onClick={() => onSendNextStep?.(nextSkill)}
+          className="mt-3 flex w-fit items-center gap-2 rounded-lg border border-sidebar-primary/30 bg-sidebar-primary/5 px-3.5 py-2 text-sm text-sidebar-primary transition-colors hover:bg-sidebar-primary/15 hover:border-sidebar-primary/50"
+        >
+          <Play className="size-3.5 shrink-0 fill-current" />
+          <span className="font-medium">
+            {SKILL_STEP_LABELS[nextSkill] ?? formatSkillLabel(nextSkill)}
+          </span>
+          <ChevronRight className="size-3.5 shrink-0 opacity-60" />
+        </button>
       )}
     </div>
   )
