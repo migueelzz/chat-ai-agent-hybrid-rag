@@ -6,7 +6,6 @@ import { getThinkingEnabled, setThinkingEnabled, getWebSearchEnabled, setWebSear
 import { HomeInput } from '@/components/home/home-input'
 import { SuggestionChips } from '@/components/home/suggestion-chips'
 import type { SkillMeta } from '@/lib/types'
-import { LoaderPinwheel } from 'lucide-react'
 
 export function HomePage() {
   const navigate = useNavigate()

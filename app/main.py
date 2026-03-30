@@ -6,7 +6,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.limiter import limiter
-from app.routers import ingest, query, chat, skills
+from app.routers import ingest, query, chat, skills, metrics
 
 
 @asynccontextmanager
@@ -42,10 +42,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(ingest.router,  prefix="/ingest",  tags=["Ingestão"])
-app.include_router(query.router,   prefix="/query",   tags=["Query"])
-app.include_router(chat.router,    prefix="/chat",    tags=["Chat"])
-app.include_router(skills.router,  prefix="/skills",  tags=["Skills"])
+app.include_router(ingest.router,   prefix="/ingest",   tags=["Ingestão"])
+app.include_router(query.router,    prefix="/query",    tags=["Query"])
+app.include_router(chat.router,     prefix="/chat",     tags=["Chat"])
+app.include_router(skills.router,   prefix="/skills",   tags=["Skills"])
+app.include_router(metrics.router,  prefix="/metrics",  tags=["Metrics"])
 
 
 @app.get("/")

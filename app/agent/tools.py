@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from typing import Dict
 
 import html2text
 import httpx
@@ -178,3 +179,141 @@ async def use_skill(skill_name: str) -> str:
     if len(content) > _MAX_SKILL_CHARS:
         content = content[:_MAX_SKILL_CHARS] + "\n\n[... skill truncada após 8000 caracteres ...]"
     return f"[SKILL: {skill.title}]\n\n{content}"
+
+
+# ---------------------------------------------------------------------------
+# Ferramenta 6 — ZIP File Explorer
+# ---------------------------------------------------------------------------
+
+@tool
+async def zip_file_explorer(zip_filename: str, action: str = "list") -> str:
+    """
+    Explora a estrutura de arquivos extraídos de um ZIP específico.
+    
+    Args:
+        zip_filename: Nome do arquivo ZIP original
+        action: 'list' para listar estrutura, 'tree' para árvore hierárquica
+    
+    Returns:
+        Estrutura organizacional dos arquivos do ZIP ou mensagem de erro.
+    """
+    session = db_session_var.get()
+    if session is None:
+        return "Erro interno: sessão de banco de dados não disponível."
+    
+    try:
+        # Buscar todos os arquivos extraídos deste ZIP
+        result = await session.execute(
+            text("""
+                SELECT filename, zip_path, size_bytes 
+                FROM session_files 
+                WHERE source_zip = :zip_name 
+                ORDER BY zip_path
+            """),
+            {"zip_name": zip_filename}
+        )
+        
+        files = result.fetchall()
+        if not files:
+            return f"Nenhum arquivo encontrado para o ZIP '{zip_filename}'. Verifique se o nome está correto."
+        
+        if action == "tree":
+            return _build_directory_tree(files)
+        else:
+            return _build_file_list(files, zip_filename)
+            
+    except Exception as e:
+        return f"Erro ao explorar ZIP '{zip_filename}': {str(e)}"
+
+
+def _build_file_list(files, zip_filename: str) -> str:
+    """Constrói uma lista simples de arquivos com tamanhos."""
+    lines = [f"📦 {zip_filename} ({len(files)} arquivos extraídos)\n"]
+    
+    total_size = 0
+    for file in files:
+        zip_path = file.zip_path or file.filename.replace('[ZIP] ', '')
+        size_kb = file.size_bytes / 1024
+        total_size += file.size_bytes
+        
+        if size_kb < 1:
+            size_str = f"{file.size_bytes}B"
+        elif size_kb < 1024:
+            size_str = f"{size_kb:.1f}KB"
+        else:
+            size_str = f"{size_kb/1024:.1f}MB"
+            
+        lines.append(f"  📄 {zip_path} ({size_str})")
+    
+    total_mb = total_size / (1024 * 1024)
+    lines.append(f"\n💾 Tamanho total: {total_mb:.1f}MB")
+    
+    return "\n".join(lines)
+
+
+def _build_directory_tree(files) -> str:
+    """Constrói uma árvore hierárquica dos arquivos."""
+    tree: Dict[str, Dict] = {}
+    
+    for file in files:
+        zip_path = file.zip_path or file.filename.replace('[ZIP] ', '')
+        parts = zip_path.split('/')
+        
+        current = tree
+        for part in parts[:-1]:  # Diretórios
+            if part not in current:
+                current[part] = {"__dirs__": {}, "__files__": []}
+            current = current[part]["__dirs__"]
+        
+        # Arquivo final
+        if parts:
+            filename = parts[-1]
+            parent_dir = current if len(parts) == 1 else current
+            
+            # Encontrar o diretório pai correto
+            if len(parts) > 1:
+                for part in parts[:-1]:
+                    if part not in tree:
+                        tree[part] = {"__dirs__": {}, "__files__": []}
+                    parent_dir = tree[part]
+                    
+            if "__files__" not in parent_dir:
+                parent_dir["__files__"] = []
+            parent_dir["__files__"].append({
+                "name": filename,
+                "size": file.size_bytes
+            })
+    
+    return _format_tree(tree, "")
+
+
+def _format_tree(node: Dict, prefix: str, is_last: bool = True) -> str:
+    """Formata a árvore de diretórios recursivamente."""
+    if not node:
+        return ""
+    
+    lines = []
+    items = list(node.items())
+    
+    for i, (name, content) in enumerate(items):
+        is_last_item = (i == len(items) - 1)
+        
+        if isinstance(content, dict) and "__dirs__" in content:
+            # É um diretório
+            connector = "└── " if is_last_item else "├── "
+            lines.append(f"{prefix}{connector}📁 {name}/")
+            
+            # Recursão para subdiretórios
+            new_prefix = prefix + ("    " if is_last_item else "│   ")
+            if content["__dirs__"]:
+                lines.append(_format_tree(content["__dirs__"], new_prefix))
+            
+            # Arquivos no diretório
+            if content.get("__files__"):
+                for j, file_info in enumerate(content["__files__"]):
+                    is_last_file = (j == len(content["__files__"]) - 1)
+                    file_connector = "└── " if is_last_file else "├── "
+                    size_str = f" ({file_info['size']}B)" if file_info['size'] < 1024 else f" ({file_info['size']/1024:.1f}KB)"
+                    lines.append(f"{new_prefix}{file_connector}📄 {file_info['name']}{size_str}")
+    
+    return "\n".join(filter(None, lines))

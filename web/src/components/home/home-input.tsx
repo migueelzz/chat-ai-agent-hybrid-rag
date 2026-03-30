@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
-import { ArrowUp, Paperclip, FileText, X, Zap, Brain, Globe, Plus, Settings } from 'lucide-react'
+import { ArrowUp, Paperclip, FileText, X, Zap, Brain, Globe, Plus, Settings, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -144,8 +144,15 @@ export function HomeInput({
   }
 
   const addFile = (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.txt')) return
-    if (file.size > 500 * 1024) return
+    const filename = file.name.toLowerCase()
+    const isZip = filename.endsWith('.zip')
+    const isTxt = filename.endsWith('.txt')
+    
+    if (!isZip && !isTxt) return
+    
+    if (isTxt && file.size > 500 * 1024) return // 500KB limit for TXT
+    if (isZip && file.size > 50 * 1024 * 1024) return // 50MB limit for ZIP
+    
     setPendingFiles((prev) => {
       if (prev.some((f) => f.name === file.name)) return prev
       return [...prev, file]
@@ -262,23 +269,30 @@ export function HomeInput({
               </div>
             ))}
 
-            {pendingFiles.map((f) => (
-              <div
-                key={f.name}
-                className="flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground"
-              >
-                <FileText className="size-3 shrink-0 text-sidebar-primary/70" />
-                <span className="max-w-36 truncate">{f.name}</span>
-                <span className="text-muted-foreground/50">· {formatBytes(f.size)}</span>
-                <button
-                  onClick={() => setPendingFiles((prev) => prev.filter((x) => x.name !== f.name))}
-                  aria-label={`Remover ${f.name}`}
-                  className="ml-0.5 rounded hover:text-foreground transition-colors"
+            {pendingFiles.map((f) => {
+              const isZip = f.name.toLowerCase().endsWith('.zip')
+              return (
+                <div
+                  key={f.name}
+                  className="flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground"
                 >
-                  <X className="size-3" />
-                </button>
-              </div>
-            ))}
+                  {isZip ? (
+                    <Archive className="size-3 shrink-0 text-amber-500/70" />
+                  ) : (
+                    <FileText className="size-3 shrink-0 text-sidebar-primary/70" />
+                  )}
+                  <span className="max-w-36 truncate">{f.name}</span>
+                  <span className="text-muted-foreground/50">· {formatBytes(f.size)}</span>
+                  <button
+                    onClick={() => setPendingFiles((prev) => prev.filter((x) => x.name !== f.name))}
+                    aria-label={`Remover ${f.name}`}
+                    className="ml-0.5 rounded hover:text-foreground transition-colors"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         )}
 
@@ -290,7 +304,7 @@ export function HomeInput({
           onInput={handleInput}
           placeholder={
             isDragging
-              ? 'Solte o arquivo .txt aqui…'
+              ? 'Solte o arquivo .txt ou .zip aqui…'
               : skills.length > 0
                 ? 'Como posso ajudar? Use / para ativar uma skill…'
                 : 'Como posso ajudar com SAP hoje?'
@@ -322,7 +336,7 @@ export function HomeInput({
                 }}
               >
                 <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
-                Anexar arquivo (.txt)
+                Anexar arquivo (.txt, .zip)
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />
@@ -399,7 +413,7 @@ export function HomeInput({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt"
+            accept=".txt,.zip"
             className="hidden"
             onChange={handleFileInput}
           />

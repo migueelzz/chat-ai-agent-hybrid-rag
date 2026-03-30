@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { LoaderPinwheel, MessageSquare, Plus, X, Zap } from 'lucide-react'
+import { BarChart2, MessageSquare, Plus, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -34,9 +34,9 @@ export function NavSidebar({ open, onClose }: NavSidebarProps) {
         {/* Logo / close button on mobile */}
         <div className="mb-4 flex flex-col items-center gap-2">
           <Link to="/" onClick={onClose}>
-            <div className="flex items-center justify-center rounded-lg select-none size-8 bg-white">
-              <LoaderPinwheel className='size-4 text-zinc-900' />
-              {/* <img src="/prime-control-logo-background.png" className="object-cover size-8" alt="Logo" /> */}
+            <div className="flex items-center justify-center rounded-lg select-none size-8">
+              {/* <LoaderPinwheel className='size-4 text-zinc-900' /> */}
+              <img src="/prime-control-logo-background.png" className="object-cover size-8" alt="Logo" />
             </div>
           </Link>
           <Button
@@ -90,6 +90,20 @@ export function NavSidebar({ open, onClose }: NavSidebarProps) {
               )}
             >
               <Zap className="size-4" />
+            </Button>
+          </Link>
+
+          <Link to="/analytics" onClick={onClose}>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Analytics"
+              className={cn(
+                'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                location.pathname === '/analytics' && 'bg-sidebar-accent',
+              )}
+            >
+              <BarChart2 className="size-4" />
             </Button>
           </Link>
         </nav>

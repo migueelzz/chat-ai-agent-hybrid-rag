@@ -1,22 +1,94 @@
+version: "3.9"
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: atem_postgres
+    container_name: postgres_chat_ai
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-atem}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atem_secret}
-      POSTGRES_DB: ${POSTGRES_DB:-atem_rag}
+      POSTGRES_USER: ${POSTGRES_USER:-docker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docker}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres_chat_ai}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./scripts:/docker-entrypoint-initdb.d/
+      - ./scripts/00_schema.sql:/docker-entrypoint-initdb.d/00_schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U atem"]
+      test: ["CMD-SHELL", "pg_isready -U docker -d postgres_chat_ai"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - chat_ai_agent
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chat_ai_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://docker:docker@postgres:5432/postgres_chat_ai
+      LLM_MODEL: ${LLM_MODEL:-gemini/gemini-2.5-flash}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-4096}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - chat_ai_agent
+    volumes:
+      - ./app:/app/app:ro
+      - ./scripts:/app/scripts:ro
+
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:3000/api
+    container_name: chat_ai_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - chat_ai_agent
+
+  ingest:
+    image: python:3.13-slim
+    container_name: chat_ai_ingest
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./docs:/docs
+      - ./scripts:/scripts
+      - ingest_state:/state
+    working_dir: /scripts
+    command: >
+      sh -c "pip install requests && python ingest_docs.py"
+    networks:
+      - chat_ai_agent
 
 volumes:
   pgdata:
+  ingest_state:
+
+networks:
+  chat_ai_agent:
+    driver: bridge

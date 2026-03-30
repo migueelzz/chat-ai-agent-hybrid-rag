@@ -5,6 +5,46 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-30 (limpeza real ao deletar sessões)
+
+### Alterado
+- `app/routers/chat.py`: `DELETE /{session_id}` agora executa limpeza completa no banco — remove `session_files`, `chat_usage`, `chat_errors` e dados do checkpointer LangGraph (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`) para o `thread_id` correspondente
+- `app/routers/chat.py`: adicionado endpoint `POST /sessions/bulk-delete` que aceita lista de `session_ids` e realiza limpeza em lote com `ANY(:ids)`
+
+---
+
+## [não lançado] — 2026-03-30 (analytics de tokens e otimização de build Docker)
+
+### Adicionado
+- `scripts/migration_add_metrics.sql`: migração idempotente com tabelas `chat_usage` e `chat_errors` para rastreamento de consumo e erros
+- `scripts/00_schema.sql`: tabelas `chat_usage` e `chat_errors` incluídas no schema inicial para novas instalações
+- `app/models/metrics.py`: modelos Pydantic `DailyUsage`, `MetricsSummary` e `ErrorLog`
+- `app/routers/metrics.py`: router `/metrics` com endpoints `GET /usage`, `GET /summary` e `GET /errors`
+- `app/routers/chat.py`: função `_extract_tokens()` para normalizar campos de uso entre OpenAI, Anthropic e Gemini/LiteLLM
+- `app/routers/chat.py`: persistência de tokens (`chat_usage`) e erros (`chat_errors`) ao final de cada chamada ao agente
+
+### Alterado
+- `Dockerfile`: substituído `pip install pdm && pdm export && pip install` por `uv` (10-100× mais rápido); PyTorch CPU-only (~300MB vs ~2GB CUDA); BuildKit cache mounts; modelo `paraphrase-MiniLM-L6-v2` pré-baixado durante o build — tempo de build ~30min → ~10min
+- `app/main.py`: router de métricas registrado em `/metrics`
+
+---
+
+## [não lançado] — 2026-03-30 (suporte a arquivos ZIP como attachments)
+
+### Adicionado
+- `scripts/migration_zip_support.sql`: migração de schema para adicionar colunas `source_zip` e `zip_path` à tabela `session_files`
+- `app/routers/chat.py`: endpoint `POST /chat/{session_id}/zip-attachment` para upload e processamento seguro de arquivos ZIP
+- `app/routers/chat.py`: validações de segurança para ZIP (tamanho máx 50MB, máx 100 arquivos, proteção zip bomb, directory traversal)
+- `app/routers/chat.py`: função `_extract_zip_safely()` com extração controlada e validação de extensões permitidas (.txt, .md, .cds, .py, .js, .ts, .tsx, .jsx, .json, .xml, .yaml, .yml, .sql)
+- `app/agent/tools.py`: ferramenta `zip_file_explorer` para o agente navegar estrutura de arquivos extraídos do ZIP
+- `app/agent/agent.py`: inclusão da ferramenta `zip_file_explorer` nas tools disponíveis do agente
+
+### Alterado
+- `app/routers/chat.py`: função `_load_session_files()` agora agrupa e organiza arquivos por ZIP de origem, mantendo hierarquia clara no contexto
+- `app/routers/chat.py`: constantes de validação expandidas para suportar múltiplos tipos de arquivo e limites específicos por formato
+
+---
+
 ## [não lançado] — 2026-03-27 (corrigir headings dentro de blocos de código)
 
 ### Adicionado

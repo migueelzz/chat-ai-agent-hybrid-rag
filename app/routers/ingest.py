@@ -1,10 +1,11 @@
 from fastapi import APIRouter, UploadFile, File, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-import tempfile, os
+import os
+import tempfile
 
 from app.database import get_db
-from app.ingestion.parser import parse_pdf, ParsedSection
+from app.ingestion.parser import parse_pdf
 from app.ingestion.chunker import build_chunks
 from app.ingestion.embedder import batch_embeddings
 from app.ingestion.extractor import extract_entities

@@ -4,6 +4,7 @@ import { HomePage } from '@/pages/home-page'
 import { ChatsPage } from '@/pages/chats-page'
 import { ChatPage } from '@/pages/chat-page'
 import { SkillsPage } from '@/pages/skills-page'
+import { AnalyticsPage } from '@/pages/analytics-page'
 
 export function App() {
   return (
@@ -14,6 +15,7 @@ export function App() {
           <Route path="chats" element={<ChatsPage />} />
           <Route path="chat/:sessionId" element={<ChatPage />} />
           <Route path="skills" element={<SkillsPage />} />
+          <Route path="analytics" element={<AnalyticsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

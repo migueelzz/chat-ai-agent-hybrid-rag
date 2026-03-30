@@ -5,6 +5,59 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-30 (confirmações de deleção e multi-select de chats)
+
+### Adicionado
+- `src/pages/chats-page.tsx`: checkboxes por sessão para seleção múltipla; barra de ação em lote aparece ao selecionar (mostra contagem + botão "Remover selecionadas"); seleção é limpa ao alterar filtro de busca
+- `src/pages/chats-page.tsx`: AlertDialog de confirmação antes de deletar sessão(ões) — exibe aviso de irreversibilidade e quantidade afetada
+- `src/pages/skills-page.tsx`: AlertDialog de confirmação antes de deletar skill
+- `src/hooks/use-sessions.ts`: método `deleteSessions(ids[])` para deleção em lote via `deleteSessionsBulk()`
+- `src/lib/api.ts`: função `deleteSessionsBulk(ids[])` → `POST /chat/sessions/bulk-delete`
+- `src/components/ui/alert-dialog.tsx` e `checkbox.tsx`: componentes shadcn adicionados
+
+---
+
+## [não lançado] — 2026-03-30 (analytics com integração LiteLLM)
+
+### Alterado
+- `src/pages/analytics-page.tsx`: removidos line chart e bar chart de tokens (dados sempre 0); substituídos por bar chart de chamadas/dia e seção de budget por provider; cards mostram gasto ($) e tokens do LiteLLM (exibe "N/D" se proxy indisponível)
+- `src/lib/types.ts`: removida `DailyUsage`; adicionadas `DailyCalls` e `ProviderBudget`; `MetricsSummary` atualizada para incluir `total_spend` e `total_tokens` (de LiteLLM)
+- `src/lib/api.ts`: removida `getMetricsUsage()`; adicionadas `getMetricsCalls()` e `getMetricsBudget()`
+
+---
+
+## [não lançado] — 2026-03-30 (analytics de tokens e erros)
+
+### Adicionado
+- `src/pages/analytics-page.tsx`: nova página `/analytics` com seletor de período (Hoje/7/30/Tudo), 4 cards de resumo (total tokens, chamadas, média e erros), line chart de tokens por dia, bar chart empilhado de entrada vs saída e tabela de erros recentes
+- `src/lib/types.ts`: interfaces `DailyUsage`, `MetricsSummary` e `ErrorLog`
+- `src/lib/api.ts`: funções `getMetricsUsage()`, `getMetricsSummary()` e `getMetricsErrors()`
+- `src/components/layout/nav-sidebar.tsx`: item "Analytics" com ícone `BarChart2` no menu lateral
+- `src/app.tsx`: rota `/analytics` adicionada ao roteador
+
+### Alterado
+- `package.json`: dependência `recharts` adicionada para os componentes de gráfico
+- `src/components/ui/chart.tsx`: componente `ChartContainer` do shadcn/ui adicionado via `npx shadcn add chart`
+
+---
+
+## [não lançado] — 2026-03-30 (suporte a arquivos ZIP como attachments)
+
+### Adicionado
+- `src/lib/types.ts`: interface `ZipUploadResponse` e campos `source_zip`/`zip_path` em `AttachmentMeta`
+- `src/lib/api.ts`: função `uploadZipAttachment()` para enviar arquivos ZIP ao endpoint backend
+- `src/components/chat/chat-input.tsx` e `src/components/home/home-input.tsx`: suporte a upload de arquivos ZIP (.zip até 50MB)
+- `src/components/chat/chat-input.tsx` e `src/components/home/home-input.tsx`: ícone `Archive` para distinguir visualmente badges de ZIP dos badges de TXT
+
+### Alterado
+- `src/hooks/use-chat.ts`: lógica de upload expandida para detectar arquivos ZIP e usar endpoint específico
+- `src/hooks/use-chat.ts`: badges de ZIP mostram emoji 📦, nome do arquivo e contador de arquivos extraídos
+- `src/components/chat/chat-input.tsx` e `src/components/home/home-input.tsx`: atributo `accept` atualizado para `.txt,.zip`
+- `src/components/chat/chat-input.tsx` e `src/components/home/home-input.tsx`: placeholders atualizados para mencionar suporte a ZIP
+- `src/components/chat/chat-input.tsx` e `src/components/home/home-input.tsx`: validação de tamanho expandida com limites específicos (500KB para TXT, 50MB para ZIP)
+
+---
+
 ## [não lançado] — 2026-03-27 (submenu de habilidades)
 
 ### Alterado

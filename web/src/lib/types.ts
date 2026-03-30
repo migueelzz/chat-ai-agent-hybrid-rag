@@ -27,6 +27,20 @@ export interface AttachmentMeta {
   id: number
   filename: string
   size_bytes: number
+  source_zip?: string
+  zip_path?: string
+}
+
+export interface ZipUploadResponse {
+  success: boolean
+  zip_filename: string
+  files_extracted: number
+  total_size_bytes: number
+  files: Array<{
+    filename: string
+    zip_path: string
+    size_bytes: number
+  }>
 }
 
 export interface ChatMessage {
@@ -72,4 +86,34 @@ export interface SkillMeta {
   description: string
   is_active: boolean
   created_at: string
+}
+
+export interface DailyCalls {
+  date: string
+  calls: number
+}
+
+export interface MetricsSummary {
+  total_calls: number
+  avg_latency_ms: number
+  error_count: number
+  total_spend: number | null
+  total_tokens: number | null
+}
+
+export interface ProviderBudget {
+  provider: string
+  budget_limit: number | null
+  spend: number
+  time_period: string | null
+  budget_reset_at: string | null
+}
+
+export interface ErrorLog {
+  id: number
+  session_id: string | null
+  timestamp: string
+  error_message: string | null
+  error_type: string | null
+  tool_name: string | null
 }

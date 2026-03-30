@@ -1,7 +1,11 @@
 import json
+import os
 import re
+import time
 import uuid
+import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -16,6 +20,8 @@ from app.limiter import limiter
 from app.agent.context_var import db_session_var
 from app.agent.memory import get_checkpointer
 from app.database import get_db
+from pydantic import BaseModel
+
 from app.models.chat import (
     CreateSessionResponse,
     ExtractDocumentRequest,
@@ -101,6 +107,14 @@ def _fix_code_block_headings(text: str, in_code_block: bool) -> tuple[str, bool]
 _SAFE_FILENAME = re.compile(r'^[\w\s\-\.]+$')
 MAX_TXT_BYTES = 500 * 1024  # 500 KB
 
+# Configurações para arquivos ZIP
+MAX_ZIP_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_FILES_IN_ZIP = 100
+MAX_INDIVIDUAL_FILE_SIZE = 10 * 1024 * 1024  # 10MB por arquivo dentro do ZIP
+ALLOWED_EXTENSIONS = {'.txt', '.md', '.cds', '.py', '.js', '.ts', '.tsx', '.jsx', '.json', '.xml', '.yaml', '.yml', '.sql'}
+MAX_COMPRESSION_RATIO = 100  # Proteção contra zip bombs
+ZIP_EXTRACTION_TIMEOUT = 30  # segundos
+
 
 # ---------------------------------------------------------------------------
 # POST /chat/sessions — cria nova sessão
@@ -120,17 +134,43 @@ async def create_session(request: Request):  # noqa: ARG001
 # ---------------------------------------------------------------------------
 
 async def _load_session_files(session_id: str, db: AsyncSession) -> str:
-    """Carrega arquivos TXT da sessão e retorna bloco de contexto."""
+    """Carrega arquivos da sessão (TXT e ZIP extraídos) e retorna bloco de contexto."""
     result = await db.execute(
-        text("SELECT filename, content FROM session_files WHERE session_id = :sid ORDER BY created_at"),
+        text("""
+            SELECT filename, content, source_zip, zip_path 
+            FROM session_files 
+            WHERE session_id = :sid 
+            ORDER BY 
+                CASE WHEN source_zip IS NULL THEN 0 ELSE 1 END,
+                source_zip NULLS FIRST,
+                zip_path NULLS LAST,
+                created_at
+        """),
         {"sid": session_id},
     )
     rows = result.fetchall()
     if not rows:
         return ""
+    
     parts = ["[Contexto de arquivos enviados pelo usuário nesta sessão]"]
+    current_zip = None
+    
     for row in rows:
-        parts.append(f"\n--- Arquivo: {row.filename} ---\n{row.content[:8000]}")
+        if row.source_zip:
+            # Arquivo extraído de ZIP
+            if current_zip != row.source_zip:
+                current_zip = row.source_zip
+                parts.append(f"\n=== Arquivos extraídos de {row.source_zip} ===")
+            
+            display_path = row.zip_path or row.filename.replace('[ZIP] ', '')
+            parts.append(f"\n--- Arquivo: {display_path} ---\n{row.content[:8000]}")
+        else:
+            # Arquivo TXT individual
+            if current_zip:
+                current_zip = None
+                parts.append("\n=== Arquivos individuais ===")
+            parts.append(f"\n--- Arquivo: {row.filename} ---\n{row.content[:8000]}")
+    
     parts.append("--- fim dos arquivos ---\n")
     return "\n".join(parts)
 
@@ -164,6 +204,7 @@ async def _stream_agent(
     _is_document = bool(_DOC_INTENT_RE.search(message))
     last_used_skill: str | None = None
     _in_code_block = False  # rastreia se o stream está dentro de um bloco ```
+    _start_time = time.time()
     try:
         agent = await get_agent()
         config = {"configurable": {"thread_id": session_id}}
@@ -301,6 +342,18 @@ async def _stream_agent(
                         )
 
         next_skill = _next_in_chain(last_used_skill)
+        try:
+            latency_ms = int((time.time() - _start_time) * 1000)
+            await db.execute(
+                text(
+                    "INSERT INTO chat_usage (session_id, model_name, latency_ms) "
+                    "VALUES (:sid, :model, :lat)"
+                ),
+                {"sid": session_id, "model": settings.llm_model, "lat": latency_ms},
+            )
+            await db.commit()
+        except Exception:
+            pass  # nunca interromper o stream por falha nas métricas
         yield f"data: {MessageChunk(type='done', content='', is_document=_is_document, next_skill=next_skill).model_dump_json()}\n\n"
 
     except Exception as exc:
@@ -310,6 +363,17 @@ async def _stream_agent(
                 "A resposta ficou longa demais para ser processada de uma vez. "
                 "Tente dividir a análise em etapas menores — por exemplo, execute cada fase separadamente."
             )
+        try:
+            await db.execute(
+                text(
+                    "INSERT INTO chat_errors (session_id, error_message, error_type) "
+                    "VALUES (:sid, :msg, :etype)"
+                ),
+                {"sid": session_id, "msg": error_msg[:500], "etype": type(exc).__name__},
+            )
+            await db.commit()
+        except Exception:
+            pass
         # Se a falha ocorreu após uma skill ser invocada (ex: timeout na geração da resposta),
         # inclui next_skill apontando para a mesma fase — permite retry via chip de sugestão.
         payload = MessageChunk(type="error", content=error_msg, next_skill=last_used_skill)
@@ -376,9 +440,40 @@ async def get_history(session_id: str):
 # DELETE /chat/{session_id} — encerra sessão
 # ---------------------------------------------------------------------------
 
+_CHECKPOINT_TABLES = ["checkpoint_writes", "checkpoint_blobs", "checkpoints"]
+
+
 @router.delete("/{session_id}", status_code=204)
-async def delete_session(session_id: str):
-    return None
+async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    await db.execute(text("DELETE FROM session_files WHERE session_id = :sid"), {"sid": session_id})
+    await db.execute(text("DELETE FROM chat_usage WHERE session_id = :sid"), {"sid": session_id})
+    await db.execute(text("DELETE FROM chat_errors WHERE session_id = :sid"), {"sid": session_id})
+    for tbl in _CHECKPOINT_TABLES:
+        try:
+            await db.execute(text(f"DELETE FROM {tbl} WHERE thread_id = :sid"), {"sid": session_id})
+        except Exception:
+            await db.rollback()
+    await db.commit()
+
+
+class BulkDeleteRequest(BaseModel):
+    session_ids: list[str]
+
+
+@router.post("/sessions/bulk-delete", status_code=204)
+async def bulk_delete_sessions(body: BulkDeleteRequest, db: AsyncSession = Depends(get_db)):
+    if not body.session_ids:
+        return
+    ids = body.session_ids
+    await db.execute(text("DELETE FROM session_files WHERE session_id = ANY(:ids)"), {"ids": ids})
+    await db.execute(text("DELETE FROM chat_usage WHERE session_id = ANY(:ids)"), {"ids": ids})
+    await db.execute(text("DELETE FROM chat_errors WHERE session_id = ANY(:ids)"), {"ids": ids})
+    for tbl in _CHECKPOINT_TABLES:
+        try:
+            await db.execute(text(f"DELETE FROM {tbl} WHERE thread_id = ANY(:ids)"), {"ids": ids})
+        except Exception:
+            await db.rollback()
+    await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +564,104 @@ async def upload_attachment(
     return {"id": file_id, "filename": safe_name, "size_bytes": size_bytes}
 
 
+def _is_safe_path(path: str) -> bool:
+    """Valida se o path é seguro (não contém directory traversal)."""
+    normalized = os.path.normpath(path)
+    return not (normalized.startswith('../') or '/../' in normalized or normalized == '..')
+
+
+def _get_file_extension(filename: str) -> str:
+    """Retorna a extensão do arquivo em lowercase."""
+    return Path(filename).suffix.lower()
+
+
+def _is_allowed_extension(filename: str) -> bool:
+    """Verifica se a extensão do arquivo é permitida."""
+    ext = _get_file_extension(filename)
+    return ext in ALLOWED_EXTENSIONS
+
+
+def _sanitize_zip_filename(filename: str) -> str:
+    """Sanitiza o nome do arquivo ZIP."""
+    safe_name = re.sub(r'[^\w\s\-\.]', '_', filename)
+    if not safe_name:
+        safe_name = f"arquivo_{int(time.time())}.zip"
+    return safe_name
+
+
+def _extract_zip_safely(zip_file_path: str, session_id: str) -> list[dict]:
+    """Extrai arquivo ZIP de forma segura e retorna lista de arquivos processados."""
+    extracted_files = []
+    
+    try:
+        with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+            # Verificar número total de arquivos
+            file_list = zip_ref.infolist()
+            if len(file_list) > MAX_FILES_IN_ZIP:
+                raise HTTPException(
+                    status_code=413, 
+                    detail=f"ZIP contém muitos arquivos ({len(file_list)}). Máximo permitido: {MAX_FILES_IN_ZIP}."
+                )
+            
+            for file_info in file_list:
+                # Pular diretórios
+                if file_info.is_dir():
+                    continue
+                    
+                # Verificar path traversal
+                if not _is_safe_path(file_info.filename):
+                    continue  # Pular arquivo inseguro silenciosamente
+                    
+                # Verificar extensão
+                if not _is_allowed_extension(file_info.filename):
+                    continue  # Pular extensão não permitida
+                    
+                # Verificar tamanho descompactado
+                if file_info.file_size > MAX_INDIVIDUAL_FILE_SIZE:
+                    continue  # Pular arquivo muito grande
+                    
+                # Verificar compression ratio (proteção zip bomb)
+                if file_info.compress_size > 0:
+                    ratio = file_info.file_size / file_info.compress_size
+                    if ratio > MAX_COMPRESSION_RATIO:
+                        continue  # Pular possível zip bomb
+                
+                # Extrair conteúdo
+                try:
+                    with zip_ref.open(file_info) as extracted_file:
+                        content_bytes = extracted_file.read(MAX_INDIVIDUAL_FILE_SIZE + 1)
+                        if len(content_bytes) > MAX_INDIVIDUAL_FILE_SIZE:
+                            continue  # Pular se exceder limite durante leitura
+                            
+                        # Decodificar como texto
+                        try:
+                            content = content_bytes.decode('utf-8')
+                        except UnicodeDecodeError:
+                            try:
+                                content = content_bytes.decode('latin-1')
+                            except UnicodeDecodeError:
+                                continue  # Pular se não conseguir decodificar
+                        
+                        # Preparar dados do arquivo
+                        safe_filename = os.path.basename(file_info.filename)
+                        extracted_files.append({
+                            'filename': safe_filename,
+                            'zip_path': file_info.filename,
+                            'content': content,
+                            'size_bytes': len(content_bytes)
+                        })
+                        
+                except Exception:
+                    continue  # Pular arquivo com erro na extração
+                    
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Arquivo ZIP corrompido ou inválido.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao processar ZIP: {str(e)}")
+    
+    return extracted_files
+
+
 # ---------------------------------------------------------------------------
 # GET /chat/{session_id}/attachments — lista arquivos da sessão
 # ---------------------------------------------------------------------------
@@ -483,3 +676,96 @@ async def list_attachments(
         {"sid": session_id},
     )
     return [{"id": row.id, "filename": row.filename, "size_bytes": row.size_bytes} for row in result]
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/{session_id}/zip-attachment — upload de arquivo ZIP
+# ---------------------------------------------------------------------------
+
+@router.post("/{session_id}/zip-attachment")
+@limiter.limit("10/minute")
+async def upload_zip_attachment(
+    request: Request,  # noqa: ARG001
+    session_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    # 1. Validar extensão
+    filename = file.filename or "arquivo.zip"
+    if not filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Apenas arquivos .zip são aceitos.")
+
+    # 2. Sanitizar filename
+    safe_zip_name = _sanitize_zip_filename(filename)
+
+    # 3. Verificar tamanho do ZIP
+    file.file.seek(0, 2)  # Seek to end
+    file_size = file.file.tell()
+    file.file.seek(0)  # Reset to beginning
+    
+    if file_size > MAX_ZIP_SIZE:
+        raise HTTPException(
+            status_code=413, 
+            detail=f"Arquivo ZIP excede o limite de {MAX_ZIP_SIZE // (1024 * 1024)}MB."
+        )
+
+    # 4. Salvar ZIP temporariamente
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as temp_zip:
+        content = await file.read()
+        temp_zip.write(content)
+        temp_zip_path = temp_zip.name
+
+    extracted_files = []
+    files_saved = 0
+    
+    try:
+        # 5. Extrair arquivos do ZIP
+        extracted_files = _extract_zip_safely(temp_zip_path, session_id)
+        
+        if not extracted_files:
+            raise HTTPException(
+                status_code=400, 
+                detail="Nenhum arquivo válido encontrado no ZIP. Verifique as extensões permitidas."
+            )
+
+        # 6. Salvar arquivos extraídos no banco
+        for file_data in extracted_files:
+            await db.execute(
+                text("""
+                    INSERT INTO session_files(session_id, filename, content, size_bytes, source_zip, zip_path)
+                    VALUES(:sid, :fn, :ct, :sz, :zip_name, :zip_path)
+                """),
+                {
+                    "sid": session_id,
+                    "fn": f"[ZIP] {file_data['filename']}",
+                    "ct": file_data['content'],
+                    "sz": file_data['size_bytes'],
+                    "zip_name": safe_zip_name,
+                    "zip_path": file_data['zip_path']
+                },
+            )
+            files_saved += 1
+
+        await db.commit()
+
+        return {
+            "success": True,
+            "zip_filename": safe_zip_name,
+            "files_extracted": files_saved,
+            "total_size_bytes": sum(f['size_bytes'] for f in extracted_files),
+            "files": [
+                {
+                    "filename": f['filename'],
+                    "zip_path": f['zip_path'],
+                    "size_bytes": f['size_bytes']
+                } for f in extracted_files
+            ]
+        }
+
+    finally:
+        # 7. Limpar arquivo temporário
+        try:
+            os.unlink(temp_zip_path)
+        except Exception:
+            pass  # Ignorar erros de limpeza

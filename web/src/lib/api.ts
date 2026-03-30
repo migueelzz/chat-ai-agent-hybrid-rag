@@ -1,8 +1,10 @@
 import axios from 'axios'
-import type { AttachmentMeta, CreateSessionResponse, HistoryResponse, MessageChunk, SkillMeta } from './types'
+import type { AttachmentMeta, CreateSessionResponse, DailyCalls, ErrorLog, HistoryResponse, MessageChunk, MetricsSummary, ProviderBudget, SkillMeta, ZipUploadResponse } from './types'
+
+const baseURL = '/api'
 
 const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL as string,
+  baseURL: baseURL,
 })
 
 export async function createSession(): Promise<CreateSessionResponse> {
@@ -19,10 +21,21 @@ export async function deleteSessionApi(sessionId: string): Promise<void> {
   await http.delete(`/chat/${sessionId}`)
 }
 
+export async function deleteSessionsBulk(ids: string[]): Promise<void> {
+  await http.post('/chat/sessions/bulk-delete', { session_ids: ids })
+}
+
 export async function uploadAttachment(sessionId: string, file: File): Promise<AttachmentMeta> {
   const form = new FormData()
   form.append('file', file)
   const { data } = await http.post<AttachmentMeta>(`/chat/${sessionId}/attachments`, form)
+  return data
+}
+
+export async function uploadZipAttachment(sessionId: string, file: File): Promise<ZipUploadResponse> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await http.post<ZipUploadResponse>(`/chat/${sessionId}/zip-attachment`, form)
   return data
 }
 
@@ -61,6 +74,38 @@ export async function extractDocument(sessionId: string, content: string): Promi
   return data.document
 }
 
+export async function getMetricsCalls(days: number): Promise<DailyCalls[]> {
+  try {
+    const { data } = await http.get<DailyCalls[]>('/metrics/usage', { params: { days } })
+    return data
+  } catch {
+    return []
+  }
+}
+
+export async function getMetricsSummary(days: number): Promise<MetricsSummary> {
+  const { data } = await http.get<MetricsSummary>('/metrics/summary', { params: { days } })
+  return data
+}
+
+export async function getMetricsBudget(): Promise<ProviderBudget[]> {
+  try {
+    const { data } = await http.get<ProviderBudget[]>('/metrics/provider')
+    return data
+  } catch {
+    return []
+  }
+}
+
+export async function getMetricsErrors(limit = 50): Promise<ErrorLog[]> {
+  try {
+    const { data } = await http.get<ErrorLog[]>('/metrics/errors', { params: { limit } })
+    return data
+  } catch {
+    return []
+  }
+}
+
 // SSE streaming usa fetch (axios não suporta ReadableStream com async generator)
 export async function* streamMessage(
   sessionId: string,
@@ -69,8 +114,7 @@ export async function* streamMessage(
   skillNames?: string[],
   webSearchEnabled?: boolean,
 ): AsyncGenerator<MessageChunk> {
-  const base = import.meta.env.VITE_API_BASE_URL as string
-  const res = await fetch(`${base}/chat/${sessionId}/message`, {
+  const res = await fetch(`${baseURL}/chat/${sessionId}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

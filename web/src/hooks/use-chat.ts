@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { getHistory, streamMessage, uploadAttachment, getAttachments } from '@/lib/api'
+import { getHistory, streamMessage, uploadAttachment, uploadZipAttachment, getAttachments } from '@/lib/api'
 import type { AttachmentMeta, ChatMessage, ToolCall } from '@/lib/types'
 
 function uuid() {
@@ -105,8 +105,22 @@ export function useChat(sessionId: string) {
       const uploadedFiles: AttachmentMeta[] = []
       for (const file of allPendingFiles) {
         try {
-          const meta = await uploadAttachment(sessionId, file)
-          uploadedFiles.push(meta)
+          const isZip = file.name.toLowerCase().endsWith('.zip')
+          if (isZip) {
+            // Para ZIP, criar attachment metadata baseado na resposta
+            const zipResponse = await uploadZipAttachment(sessionId, file)
+            // Criar um AttachmentMeta virtual para o ZIP
+            const zipMeta: AttachmentMeta = {
+              id: Date.now(), // ID temporário
+              filename: `📦 ${zipResponse.zip_filename} (${zipResponse.files_extracted} arquivos)`,
+              size_bytes: zipResponse.total_size_bytes,
+              source_zip: zipResponse.zip_filename
+            }
+            uploadedFiles.push(zipMeta)
+          } else {
+            const meta = await uploadAttachment(sessionId, file)
+            uploadedFiles.push(meta)
+          }
         } catch {
           // continua mesmo se um arquivo falhar
         }

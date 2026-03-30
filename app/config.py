@@ -1,27 +1,27 @@
-# app/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     # Banco
-    database_url: str
-    postgres_user: str = "atem"
-    postgres_password: str = "atem_secret"
-    postgres_db: str = "atem_rag"
+    database_url: str | None = None  # agora opcional
+    postgres_user: str = "docker"
+    postgres_password: str = "docker"
+    postgres_db: str = "postgres_chat_ai"
     postgres_host: str = "localhost"
     postgres_port: int = 5432
 
     # Embeddings
     embedding_model: str = "paraphrase-MiniLM-L6-v2"
 
-    # LLM — agnóstico via LiteLLM proxy (OpenAI-compatible) ou direto
-    llm_model: str = "gpt-4o-mini"
+    # LLM
+    llm_model: str = "gemini/gemini-2.5-flash"
     llm_api_key: str = ""
-    llm_base_url: str = ""       # vazio = usa endpoint padrão do provider
+    llm_base_url: str = ""
     llm_max_tokens: int = 4096
     llm_temperature: float = 0.3
     context_window: int = 128000
 
-    # SAP MCP Servers — opcional (requer Node.js e MCP_ENABLED=true)
+    # MCP
     mcp_enabled: bool = False
 
     model_config = SettingsConfigDict(
@@ -31,10 +31,19 @@ class Settings(BaseSettings):
 
     @property
     def postgres_dsn(self) -> str:
-        """URL psycopg3-compatible para AsyncPostgresSaver (sem driver prefix)."""
+        """
+        Retorna DSN compatível com psycopg (LangGraph).
+        Prioriza DATABASE_URL e converte automaticamente.
+        """
+        if self.database_url:
+            # remove driver asyncpg → psycopg precisa disso
+            return self.database_url.replace("+asyncpg", "")
+
+        # fallback (ex: rodando local sem docker)
         return (
             f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
 
 settings = Settings()

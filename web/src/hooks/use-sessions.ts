@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { deleteSessionApi } from '@/lib/api'
+import { deleteSessionApi, deleteSessionsBulk } from '@/lib/api'
 import {
   addSession as addSessionStore,
   getSessions,
@@ -21,9 +21,15 @@ export function useSessions() {
     try { await deleteSessionApi(id) } catch { /* best-effort */ }
   }, [])
 
+  const deleteSessions = useCallback(async (ids: string[]) => {
+    ids.forEach(removeSessionStore)
+    setSessions(getSessions())
+    try { await deleteSessionsBulk(ids) } catch { /* best-effort */ }
+  }, [])
+
   const refresh = useCallback(() => {
     setSessions(getSessions())
   }, [])
 
-  return { sessions, addSession, deleteSession, refresh }
+  return { sessions, addSession, deleteSession, deleteSessions, refresh }
 }

@@ -1,5 +1,15 @@
 import { useState, useEffect, useRef, type DragEvent, type ChangeEvent } from 'react'
 import { Zap, Trash2, Upload, ToggleLeft, ToggleRight } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { getSkills, uploadSkill, deleteSkill, toggleSkill } from '@/lib/api'
 import type { SkillMeta } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -9,6 +19,7 @@ export function SkillsPage() {
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingDeleteSkill, setPendingDeleteSkill] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -190,7 +201,7 @@ export function SkillsPage() {
                     )}
                   </button>
                   <button
-                    onClick={() => void handleDelete(skill.id)}
+                    onClick={() => setPendingDeleteSkill(skill.id)}
                     title="Remover skill"
                     className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                   >
@@ -202,6 +213,30 @@ export function SkillsPage() {
           </div>
         )}
       </div>
+
+      {/* Confirmation dialog */}
+      <AlertDialog open={pendingDeleteSkill !== null} onOpenChange={(open) => !open && setPendingDeleteSkill(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover skill?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Essa ação é irreversível. A skill será removida permanentemente e não poderá ser usada no chat.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingDeleteSkill !== null) void handleDelete(pendingDeleteSkill)
+                setPendingDeleteSkill(null)
+              }}
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

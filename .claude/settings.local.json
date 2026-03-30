@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find /c/Users/migue/www/infinitfy/atem-rag -maxdepth 2 -name README* -o -name *.md)"
+      "Bash(find /c/Users/migue/www/infinitfy/atem-rag -maxdepth 2 -name README* -o -name *.md)",
+      "Bash(pnpm add:*)"
     ]
   }
 }

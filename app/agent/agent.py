@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 
 from app.agent.memory import get_checkpointer  # sync após init
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.tools import rag_search, web_search, scrape_url, use_skill
+from app.agent.tools import rag_search, web_search, scrape_url, use_skill, zip_file_explorer
 from app.agent.mcp_tools import get_mcp_tools
 from app.config import settings
 
@@ -73,7 +73,7 @@ async def get_agent():
             streaming=True,
         )
         checkpointer = get_checkpointer()
-        tools = [rag_search, web_search, scrape_url, use_skill]
+        tools = [rag_search, web_search, scrape_url, use_skill, zip_file_explorer]
         if settings.mcp_enabled:
             tools += get_mcp_tools()
         _agent = create_react_agent(
