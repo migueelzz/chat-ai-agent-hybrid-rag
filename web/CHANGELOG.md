@@ -5,6 +5,29 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-31 (badges de anexos corretas no histórico)
+
+### Corrigido
+- `web/src/components/chat/user-message.tsx`: badges de anexos agora exibem ícone e cor distintos por tipo — Archive (amber) para `.zip`, FileType2 (vermelho) para PDF, Image (verde) para imagem, FileText para texto
+- `web/src/lib/types.ts`: adicionado `'zip'` ao union `file_type` de `AttachmentMeta`
+
+---
+
+## [não lançado] — 2026-03-31 (suporte a anexos PDF e imagem)
+
+### Adicionado
+- `src/lib/types.ts`: tipos `PdfUploadResponse` e `ImageUploadResponse`; campos `file_type` e `mime_type` adicionados a `AttachmentMeta`
+- `src/lib/api.ts`: funções `uploadPdfAttachment()` e `uploadImageAttachment()`
+- `src/components/chat/chat-input.tsx`: ícones `FileType` (PDF, vermelho) e `Image` (imagem, verde) nos badges de arquivos pendentes
+- `src/components/home/home-input.tsx`: idem
+
+### Alterado
+- `src/hooks/use-chat.ts`: `sendMessage` detecta `.pdf` e `.jpg/.jpeg/.png/.webp` e chama os endpoints corretos antes de enviar a mensagem
+- `src/components/chat/chat-input.tsx`: `addFile` aceita PDF (≤ 10 MB) e imagens (≤ 5 MB); `accept` do input expandido; label do menu atualizado; placeholder de drag-and-drop simplificado
+- `src/components/home/home-input.tsx`: mesmas alterações do `chat-input`
+
+---
+
 ## [não lançado] — 2026-03-30 (correção de scroll durante streaming)
 
 ### Adicionado

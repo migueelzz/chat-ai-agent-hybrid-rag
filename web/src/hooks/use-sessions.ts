@@ -4,6 +4,8 @@ import {
   addSession as addSessionStore,
   getSessions,
   removeSession as removeSessionStore,
+  renameSession as renameSessionStore,
+  togglePin as togglePinStore,
 } from '@/lib/sessions'
 import type { Session } from '@/lib/types'
 
@@ -27,9 +29,19 @@ export function useSessions() {
     try { await deleteSessionsBulk(ids) } catch { /* best-effort */ }
   }, [])
 
+  const renameSession = useCallback((id: string, customTitle: string) => {
+    renameSessionStore(id, customTitle)
+    setSessions(getSessions())
+  }, [])
+
+  const togglePin = useCallback((id: string) => {
+    togglePinStore(id)
+    setSessions(getSessions())
+  }, [])
+
   const refresh = useCallback(() => {
     setSessions(getSessions())
   }, [])
 
-  return { sessions, addSession, deleteSession, deleteSessions, refresh }
+  return { sessions, addSession, deleteSession, deleteSessions, renameSession, togglePin, refresh }
 }

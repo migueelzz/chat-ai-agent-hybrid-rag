@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { getHistory, streamMessage, uploadAttachment, uploadZipAttachment, getAttachments } from '@/lib/api'
+import { getHistory, streamMessage, uploadAttachment, uploadZipAttachment, uploadPdfAttachment, uploadImageAttachment, getAttachments } from '@/lib/api'
 import type { AttachmentMeta, ChatMessage, ToolCall } from '@/lib/types'
 
 function uuid() {
@@ -12,6 +12,7 @@ const DOC_INTENT_RE = /\b(documenta[çc][aã]o|documento\s+t[eé]cnico|pesquisa\
 export function useChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isBlocked, setIsBlocked] = useState(false)
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([])
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const abortRef = useRef<AbortController | null>(null)
@@ -105,18 +106,37 @@ export function useChat(sessionId: string) {
       const uploadedFiles: AttachmentMeta[] = []
       for (const file of allPendingFiles) {
         try {
-          const isZip = file.name.toLowerCase().endsWith('.zip')
+          const name = file.name.toLowerCase()
+          const isZip = name.endsWith('.zip')
+          const isPdf = name.endsWith('.pdf')
+          const isImage = /\.(jpe?g|png|webp)$/.test(name)
+
           if (isZip) {
-            // Para ZIP, criar attachment metadata baseado na resposta
             const zipResponse = await uploadZipAttachment(sessionId, file)
-            // Criar um AttachmentMeta virtual para o ZIP
             const zipMeta: AttachmentMeta = {
-              id: Date.now(), // ID temporário
+              id: Date.now(),
               filename: `📦 ${zipResponse.zip_filename} (${zipResponse.files_extracted} arquivos)`,
               size_bytes: zipResponse.total_size_bytes,
-              source_zip: zipResponse.zip_filename
+              source_zip: zipResponse.zip_filename,
+              file_type: 'text',
             }
             uploadedFiles.push(zipMeta)
+          } else if (isPdf) {
+            const pdfResponse = await uploadPdfAttachment(sessionId, file)
+            uploadedFiles.push({
+              id: pdfResponse.id,
+              filename: pdfResponse.filename,
+              size_bytes: pdfResponse.size_bytes,
+              file_type: 'pdf',
+            })
+          } else if (isImage) {
+            const imgResponse = await uploadImageAttachment(sessionId, file)
+            uploadedFiles.push({
+              id: imgResponse.id,
+              filename: imgResponse.filename,
+              size_bytes: imgResponse.size_bytes,
+              file_type: 'image',
+            })
           } else {
             const meta = await uploadAttachment(sessionId, file)
             uploadedFiles.push(meta)
@@ -199,18 +219,24 @@ export function useChat(sessionId: string) {
               prev.map((m) => (m.id === assistantId ? { ...m, toolCalls: currentTools } : m)),
             )
           } else if (chunk.type === 'error') {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId
-                  ? {
-                      ...m,
-                      content: chunk.content || 'Erro ao processar resposta.',
-                      hasError: true,
-                      ...(chunk.next_skill != null && { nextSkill: chunk.next_skill }),
-                    }
-                  : m,
-              ),
-            )
+            if (chunk.content === 'CONTEXT_LIMIT_REACHED') {
+              setIsBlocked(true)
+              // Remove the optimistic assistant message (empty, never filled)
+              setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+            } else {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content: chunk.content || 'Erro ao processar resposta.',
+                        hasError: true,
+                        ...(chunk.next_skill != null && { nextSkill: chunk.next_skill }),
+                      }
+                    : m,
+                ),
+              )
+            }
             break
           } else if (chunk.type === 'done') {
             if (chunk.is_document || chunk.next_skill) {
@@ -279,6 +305,7 @@ export function useChat(sessionId: string) {
   return {
     messages,
     isStreaming,
+    isBlocked,
     attachments,
     pendingFiles,
     sendMessage,

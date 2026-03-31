@@ -131,10 +131,13 @@ CREATE TABLE IF NOT EXISTS session_files (
     id          SERIAL PRIMARY KEY,
     session_id  TEXT NOT NULL,
     filename    TEXT NOT NULL,
-    content     TEXT NOT NULL,
+    content     TEXT,                   -- NULL para imagens (binário em image_data)
     size_bytes  INTEGER NOT NULL,
     source_zip  VARCHAR(255),           -- Nome do arquivo ZIP original (NULL para arquivos TXT individuais)
     zip_path    TEXT,                   -- Caminho original dentro do ZIP (ex: src/components/example.tsx)
+    file_type   VARCHAR(20) DEFAULT 'text',  -- 'text' | 'pdf' | 'image'
+    mime_type   VARCHAR(100),                -- MIME type validado server-side
+    image_data  BYTEA,                       -- Dados binários da imagem processada (NULL para text/pdf)
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -142,9 +145,14 @@ CREATE INDEX IF NOT EXISTS idx_session_files_session    ON session_files(session
 CREATE INDEX IF NOT EXISTS idx_session_files_source_zip ON session_files(session_id, source_zip) WHERE source_zip IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_session_files_zip_path   ON session_files(session_id, zip_path)   WHERE zip_path  IS NOT NULL;
 
-COMMENT ON TABLE  session_files           IS 'Arquivos de contexto de sessão: TXT individuais ou extraídos de ZIP';
-COMMENT ON COLUMN session_files.source_zip IS 'Nome do arquivo ZIP original quando o arquivo foi extraído de um ZIP';
-COMMENT ON COLUMN session_files.zip_path   IS 'Caminho original do arquivo dentro do ZIP (ex: src/components/example.tsx)';
+CREATE INDEX IF NOT EXISTS idx_session_files_type ON session_files(session_id, file_type);
+
+COMMENT ON TABLE  session_files             IS 'Arquivos de contexto de sessão: TXT individuais, ZIPs extraídos, PDFs e imagens';
+COMMENT ON COLUMN session_files.source_zip  IS 'Nome do arquivo ZIP original quando o arquivo foi extraído de um ZIP';
+COMMENT ON COLUMN session_files.zip_path    IS 'Caminho original do arquivo dentro do ZIP (ex: src/components/example.tsx)';
+COMMENT ON COLUMN session_files.file_type   IS 'text | pdf | image';
+COMMENT ON COLUMN session_files.mime_type   IS 'MIME type validado server-side, ex: application/pdf, image/jpeg';
+COMMENT ON COLUMN session_files.image_data  IS 'Dados binários da imagem processada (redimensionada, EXIF removido); NULL para text e pdf';
 
 -- ============================================================
 -- SKILLS (comportamentos especializados do agente)

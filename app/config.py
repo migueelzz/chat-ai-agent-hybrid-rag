@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # MCP
     mcp_enabled: bool = False
 
+    # Attachments
+    llm_has_vision: bool = True   # False para modelos text-only (não suportam image_url)
+    max_pdf_pages: int = 30       # máximo de páginas extraídas por anexo PDF de sessão
+
+    # Chat limits
+    max_chat_messages: int = 100  # máximo de pares human+assistant por sessão
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"

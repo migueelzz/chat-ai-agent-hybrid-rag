@@ -20,6 +20,8 @@ from app.limiter import limiter
 from app.agent.context_var import db_session_var
 from app.agent.memory import get_checkpointer
 from app.database import get_db
+from app.attachments import pdf_processor, image_processor, office_processor
+from app.attachments.validators import validate_upload_mime, sanitize_filename
 from pydantic import BaseModel
 
 from app.models.chat import (
@@ -105,13 +107,26 @@ def _fix_code_block_headings(text: str, in_code_block: bool) -> tuple[str, bool]
 
 # Validação de filename: apenas letras, números, espaço, _ - .
 _SAFE_FILENAME = re.compile(r'^[\w\s\-\.]+$')
-MAX_TXT_BYTES = 500 * 1024  # 500 KB
+MAX_TXT_BYTES = 500 * 1024         # 500 KB
+MAX_PDF_BYTES = 10 * 1024 * 1024   # 10 MB
+MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
+MAX_OFFICE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_IMAGES_PER_SESSION = 3
+
+ALLOWED_PDF_EXTENSIONS = {".pdf"}
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 # Configurações para arquivos ZIP
 MAX_ZIP_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_FILES_IN_ZIP = 100
 MAX_INDIVIDUAL_FILE_SIZE = 10 * 1024 * 1024  # 10MB por arquivo dentro do ZIP
-ALLOWED_EXTENSIONS = {'.txt', '.md', '.cds', '.py', '.js', '.ts', '.tsx', '.jsx', '.json', '.xml', '.yaml', '.yml', '.sql'}
+ALLOWED_EXTENSIONS = {
+    '.txt', '.md', '.cds', '.py', '.js', '.ts', '.tsx', '.jsx',
+    '.json', '.xml', '.yaml', '.yml', '.sql',
+    # Office
+    '.docx', '.xlsx', '.xls', '.csv',
+}
+OFFICE_EXTENSIONS = {'.docx', '.xlsx', '.xls', '.csv'}
 MAX_COMPRESSION_RATIO = 100  # Proteção contra zip bombs
 ZIP_EXTRACTION_TIMEOUT = 30  # segundos
 
@@ -133,14 +148,20 @@ async def create_session(request: Request):  # noqa: ARG001
 # POST /chat/{session_id}/message — envia mensagem (streaming SSE)
 # ---------------------------------------------------------------------------
 
-async def _load_session_files(session_id: str, db: AsyncSession) -> str:
-    """Carrega arquivos da sessão (TXT e ZIP extraídos) e retorna bloco de contexto."""
+async def _load_session_files(
+    session_id: str, db: AsyncSession
+) -> tuple[str, list]:
+    """
+    Carrega arquivos da sessão e retorna:
+    - bloco de texto com contexto de arquivos TXT/PDF/ZIP
+    - lista de rows de imagens para injeção multimodal
+    """
     result = await db.execute(
         text("""
-            SELECT filename, content, source_zip, zip_path 
-            FROM session_files 
-            WHERE session_id = :sid 
-            ORDER BY 
+            SELECT filename, content, file_type, mime_type, image_data, source_zip, zip_path
+            FROM session_files
+            WHERE session_id = :sid
+            ORDER BY
                 CASE WHEN source_zip IS NULL THEN 0 ELSE 1 END,
                 source_zip NULLS FIRST,
                 zip_path NULLS LAST,
@@ -150,29 +171,34 @@ async def _load_session_files(session_id: str, db: AsyncSession) -> str:
     )
     rows = result.fetchall()
     if not rows:
-        return ""
-    
-    parts = ["[Contexto de arquivos enviados pelo usuário nesta sessão]"]
-    current_zip = None
-    
-    for row in rows:
-        if row.source_zip:
-            # Arquivo extraído de ZIP
-            if current_zip != row.source_zip:
-                current_zip = row.source_zip
-                parts.append(f"\n=== Arquivos extraídos de {row.source_zip} ===")
-            
-            display_path = row.zip_path or row.filename.replace('[ZIP] ', '')
-            parts.append(f"\n--- Arquivo: {display_path} ---\n{row.content[:8000]}")
-        else:
-            # Arquivo TXT individual
-            if current_zip:
-                current_zip = None
-                parts.append("\n=== Arquivos individuais ===")
-            parts.append(f"\n--- Arquivo: {row.filename} ---\n{row.content[:8000]}")
-    
-    parts.append("--- fim dos arquivos ---\n")
-    return "\n".join(parts)
+        return "", []
+
+    text_rows = [r for r in rows if (r.file_type or "text") != "image"]
+    image_rows = [r for r in rows if (r.file_type or "text") == "image"]
+
+    parts: list[str] = []
+    if text_rows:
+        parts.append("[Contexto de arquivos enviados pelo usuário nesta sessão]")
+        current_zip = None
+
+        for row in text_rows:
+            if row.source_zip:
+                if current_zip != row.source_zip:
+                    current_zip = row.source_zip
+                    parts.append(f"\n=== Arquivos extraídos de {row.source_zip} ===")
+                display_path = row.zip_path or row.filename.replace("[ZIP] ", "")
+                parts.append(f"\n--- Arquivo: {display_path} ---\n{(row.content or '')[:8000]}")
+            else:
+                if current_zip:
+                    current_zip = None
+                    parts.append("\n=== Arquivos individuais ===")
+                # PDFs já vêm com delimitadores de prompt injection; TXTs são injetados direto
+                parts.append(f"\n--- Arquivo: {row.filename} ---\n{(row.content or '')[:8000]}")
+
+        parts.append("--- fim dos arquivos ---\n")
+
+    text_context = "\n".join(parts)
+    return text_context, image_rows
 
 
 async def _load_skills_index(db: AsyncSession) -> str:
@@ -209,11 +235,19 @@ async def _stream_agent(
         agent = await get_agent()
         config = {"configurable": {"thread_id": session_id}}
 
+        # Verificar limite de contexto antes de processar
+        state = await agent.aget_state(config)
+        msg_count = len(state.values.get("messages", []))
+        if msg_count >= settings.max_chat_messages * 2:
+            yield f'data: {{"type":"error","content":"CONTEXT_LIMIT_REACHED","tool_name":null}}\n\n'
+            yield f'data: {{"type":"done","content":"","tool_name":null}}\n\n'
+            return
+
         # Construir contexto completo da mensagem
         ctx_parts: list[str] = []
 
-        # 1. Arquivos da sessão
-        files_ctx = await _load_session_files(session_id, db)
+        # 1. Arquivos da sessão (texto) + imagens para multimodal
+        files_ctx, image_rows = await _load_session_files(session_id, db)
         if files_ctx:
             ctx_parts.append(files_ctx)
 
@@ -269,7 +303,28 @@ async def _stream_agent(
         ctx_parts.append(f"Pergunta do usuário: {message}")
         full_message = "\n\n".join(ctx_parts)
 
-        input_state = {"messages": [HumanMessage(content=full_message)]}
+        # Construir input_state: multimodal quando há imagens, texto simples caso contrário
+        if image_rows and settings.llm_has_vision:
+            content_blocks: list[dict] = [{"type": "text", "text": full_message}]
+            for row in image_rows:
+                block = image_processor.build_image_content_block(
+                    bytes(row.image_data), row.mime_type or "image/jpeg"
+                )
+                content_blocks.append(block)
+            input_state = {"messages": [HumanMessage(content=content_blocks)]}
+        elif image_rows:
+            # Fallback: modelo sem visão — injeta metadados como texto
+            meta_lines = "\n".join(
+                f"[IMAGEM ANEXADA: {r.filename} | {r.mime_type or 'image/jpeg'}]"
+                for r in image_rows
+            )
+            full_message += (
+                f"\n\n{meta_lines}\n"
+                "(Modelo sem suporte a visão — conteúdo da imagem indisponível.)"
+            )
+            input_state = {"messages": [HumanMessage(content=full_message)]}
+        else:
+            input_state = {"messages": [HumanMessage(content=full_message)]}
 
         async for event in agent.astream_events(input_state, config=config, version="v2"):
             event_type = event.get("event", "")
@@ -415,7 +470,18 @@ def _msg_to_model(msg) -> HistoryMessage:
     else:
         role = "unknown"
 
-    content = msg.content if isinstance(msg.content, str) else str(msg.content)
+    if isinstance(msg.content, str):
+        content = msg.content
+    elif isinstance(msg.content, list):
+        # Multimodal HumanMessage: extract only the text block, discard image_url blocks
+        text_parts = [
+            block["text"]
+            for block in msg.content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        content = "\n".join(text_parts)
+    else:
+        content = str(msg.content)
     tool_name = msg.name if isinstance(msg, ToolMessage) else None
     return HistoryMessage(role=role, content=content, tool_name=tool_name)
 
@@ -536,21 +602,31 @@ async def upload_attachment(
     if not safe_name:
         safe_name = "arquivo.txt"
 
-    # 3. Ler conteúdo com limite de tamanho
-    raw = await file.read(MAX_TXT_BYTES + 1)
-    if len(raw) > MAX_TXT_BYTES:
-        raise HTTPException(status_code=413, detail="Arquivo excede o limite de 500 KB.")
+    is_office = ext in OFFICE_EXTENSIONS
+    size_limit = MAX_OFFICE_BYTES if is_office else MAX_TXT_BYTES
 
-    # 4. Decodificar como UTF-8
-    try:
-        content = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        try:
-            content = raw.decode("latin-1")
-        except Exception:
-            raise HTTPException(status_code=400, detail="Não foi possível decodificar o arquivo como texto.")
+    # 3. Ler conteúdo com limite de tamanho
+    raw = await file.read(size_limit + 1)
+    if len(raw) > size_limit:
+        limit_label = "10 MB" if is_office else "500 KB"
+        raise HTTPException(status_code=413, detail=f"Arquivo excede o limite de {limit_label}.")
 
     size_bytes = len(raw)
+
+    # 4. Extrair conteúdo textual
+    if is_office:
+        try:
+            content = office_processor.extract_for_ext(raw, safe_name, ext)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Erro ao processar arquivo Office: {exc}") from exc
+    else:
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                content = raw.decode("latin-1")
+            except Exception:
+                raise HTTPException(status_code=400, detail="Não foi possível decodificar o arquivo como texto.")
 
     # 5. Persistir
     result = await db.execute(
@@ -564,6 +640,155 @@ async def upload_attachment(
     await db.commit()
 
     return {"id": file_id, "filename": safe_name, "size_bytes": size_bytes}
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/{session_id}/pdf-attachment — upload de PDF como contexto de sessão
+# ---------------------------------------------------------------------------
+
+@router.post("/{session_id}/pdf-attachment")
+@limiter.limit("10/minute")
+async def upload_pdf_attachment(
+    request: Request,  # noqa: ARG001
+    session_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    filename = file.filename or "documento.pdf"
+    ext = Path(filename.lower()).suffix
+
+    if ext not in ALLOWED_PDF_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Apenas arquivos .pdf são aceitos neste endpoint.")
+
+    safe_name = sanitize_filename(filename)
+    if not safe_name:
+        safe_name = "documento.pdf"
+
+    raw = await file.read(MAX_PDF_BYTES + 1)
+    if len(raw) > MAX_PDF_BYTES:
+        raise HTTPException(status_code=413, detail="PDF excede o limite de 10 MB.")
+
+    try:
+        validate_upload_mime(raw, ext)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    try:
+        content, rendered_pages = pdf_processor.extract_pdf_text(raw, safe_name, settings.max_pdf_pages)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    result = await db.execute(
+        text("""
+            INSERT INTO session_files(session_id, filename, content, size_bytes, file_type, mime_type)
+            VALUES(:sid, :fn, :ct, :sz, 'pdf', 'application/pdf') RETURNING id
+        """),
+        {"sid": session_id, "fn": safe_name, "ct": content, "sz": len(raw)},
+    )
+    file_id = result.scalar()
+
+    # Páginas renderizadas como imagem (PDFs de screenshot/scan sem texto)
+    # São inseridas como rows de imagem e injetadas no pipeline de visão multimodal
+    for page_idx, page_bytes in enumerate(rendered_pages):
+        page_filename = f"{safe_name}__pag{page_idx + 1}.jpg"
+        await db.execute(
+            text("""
+                INSERT INTO session_files(session_id, filename, size_bytes, file_type, mime_type, image_data, source_zip)
+                VALUES(:sid, :fn, :sz, 'image', 'image/jpeg', :img, :src)
+            """),
+            {
+                "sid": session_id,
+                "fn": page_filename,
+                "sz": len(page_bytes),
+                "img": page_bytes,
+                "src": safe_name,
+            },
+        )
+
+    await db.commit()
+
+    return {
+        "id": file_id,
+        "filename": safe_name,
+        "size_bytes": len(raw),
+        "file_type": "pdf",
+        "rendered_pages": len(rendered_pages),
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/{session_id}/image-attachment — upload de imagem para visão multimodal
+# ---------------------------------------------------------------------------
+
+@router.post("/{session_id}/image-attachment")
+@limiter.limit("10/minute")
+async def upload_image_attachment(
+    request: Request,  # noqa: ARG001
+    session_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    filename = file.filename or "imagem.jpg"
+    ext = Path(filename.lower()).suffix
+
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        allowed = ", ".join(sorted(ALLOWED_IMAGE_EXTENSIONS))
+        raise HTTPException(status_code=400, detail=f"Extensão não permitida. Use: {allowed}")
+
+    safe_name = sanitize_filename(filename)
+    if not safe_name:
+        safe_name = "imagem.jpg"
+
+    raw = await file.read(MAX_IMAGE_BYTES + 1)
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Imagem excede o limite de 5 MB.")
+
+    try:
+        confirmed_mime = validate_upload_mime(raw, ext)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Limite de imagens por sessão
+    count_result = await db.execute(
+        text("SELECT COUNT(*) FROM session_files WHERE session_id = :sid AND file_type = 'image' AND source_zip IS NULL"),
+        {"sid": session_id},
+    )
+    current_count = count_result.scalar() or 0
+    if current_count >= MAX_IMAGES_PER_SESSION:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Limite de {MAX_IMAGES_PER_SESSION} imagens por sessão atingido. Remova uma imagem antes de adicionar outra.",
+        )
+
+    try:
+        processed_bytes, out_mime, (width, height) = image_processor.process_image(raw, confirmed_mime)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    result = await db.execute(
+        text("""
+            INSERT INTO session_files(session_id, filename, size_bytes, file_type, mime_type, image_data)
+            VALUES(:sid, :fn, :sz, 'image', :mime, :img) RETURNING id
+        """),
+        {
+            "sid": session_id,
+            "fn": safe_name,
+            "sz": len(processed_bytes),
+            "mime": out_mime,
+            "img": processed_bytes,
+        },
+    )
+    file_id = result.scalar()
+    await db.commit()
+
+    return {
+        "id": file_id,
+        "filename": safe_name,
+        "size_bytes": len(processed_bytes),
+        "file_type": "image",
+        "width": width,
+        "height": height,
+    }
 
 
 def _is_safe_path(path: str) -> bool:
@@ -674,10 +899,37 @@ async def list_attachments(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        text("SELECT id, filename, size_bytes FROM session_files WHERE session_id = :sid ORDER BY created_at"),
+        text("""
+            SELECT id, filename, size_bytes, file_type, mime_type, created_at
+            FROM session_files
+            WHERE session_id = :sid
+              AND source_zip IS NULL
+            UNION ALL
+            SELECT MAX(id)      AS id,
+                   source_zip   AS filename,
+                   SUM(size_bytes) AS size_bytes,
+                   'zip'        AS file_type,
+                   NULL         AS mime_type,
+                   MAX(created_at) AS created_at
+            FROM session_files
+            WHERE session_id = :sid
+              AND source_zip IS NOT NULL
+              AND zip_path   IS NOT NULL
+            GROUP BY source_zip
+            ORDER BY created_at
+        """),
         {"sid": session_id},
     )
-    return [{"id": row.id, "filename": row.filename, "size_bytes": row.size_bytes} for row in result]
+    return [
+        {
+            "id": row.id,
+            "filename": row.filename,
+            "size_bytes": row.size_bytes,
+            "file_type": row.file_type or "text",
+            "mime_type": row.mime_type,
+        }
+        for row in result
+    ]
 
 
 # ---------------------------------------------------------------------------

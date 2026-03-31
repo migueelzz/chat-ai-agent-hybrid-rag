@@ -37,6 +37,8 @@ services:
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-4096}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
       MCP_ENABLED: ${MCP_ENABLED:-false}
+      LLM_HAS_VISION: ${LLM_HAS_VISION:-true}
+      MAX_PDF_PAGES: ${MAX_PDF_PAGES:-30}
     ports:
       - "8000:8000"
     depends_on:

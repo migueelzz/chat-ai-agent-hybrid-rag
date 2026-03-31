@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
-import { ArrowUp, Square, Paperclip, X, FileText, Zap, Brain, Globe, Plus, Settings, Archive } from 'lucide-react'
+import { ArrowUp, Square, Paperclip, X, FileText, Zap, Brain, Globe, Plus, Settings, Archive, FileType, Image } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -30,6 +30,7 @@ interface ChatInputProps {
   onSend: (text: string, skillNames?: string[], webSearchEnabled?: boolean) => void
   onStop?: () => void
   disabled?: boolean
+  isBlocked?: boolean
   isStreaming?: boolean
   pendingFiles?: File[]
   onAddFile?: (file: File) => void
@@ -45,6 +46,7 @@ export function ChatInput({
   onSend,
   onStop,
   disabled = false,
+  isBlocked = false,
   isStreaming = false,
   pendingFiles = [],
   onAddFile,
@@ -152,16 +154,25 @@ export function ChatInput({
   }
 
   const TEXT_EXTENSIONS = ['.txt', '.md', '.cds', '.py', '.js', '.ts', '.tsx', '.jsx', '.json', '.xml', '.yaml', '.yml', '.sql']
+  const PDF_EXTENSIONS = ['.pdf']
+  const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
+  const OFFICE_EXTENSIONS = ['.docx', '.xlsx', '.xls', '.csv']
 
   const addFile = (file: File) => {
     const filename = file.name.toLowerCase()
     const ext = '.' + (filename.split('.').pop() ?? '')
     const isZip = ext === '.zip'
     const isText = TEXT_EXTENSIONS.includes(ext)
+    const isPdf = PDF_EXTENSIONS.includes(ext)
+    const isImage = IMAGE_EXTENSIONS.includes(ext)
+    const isOffice = OFFICE_EXTENSIONS.includes(ext)
 
-    if (!isZip && !isText) return
+    if (!isZip && !isText && !isPdf && !isImage && !isOffice) return
     if (isText && file.size > 500 * 1024) return
     if (isZip && file.size > 50 * 1024 * 1024) return
+    if (isPdf && file.size > 10 * 1024 * 1024) return
+    if (isImage && file.size > 5 * 1024 * 1024) return
+    if (isOffice && file.size > 10 * 1024 * 1024) return
 
     onAddFile?.(file)
   }
@@ -188,6 +199,24 @@ export function ChatInput({
 
   const hasBadges =
     pendingFiles.length > 0 || selectedSkills.length > 0 || thinkingEnabled || webSearchEnabled
+
+  if (isBlocked) {
+    return (
+      <div className="bg-background px-4 py-4">
+        <div className="mx-auto max-w-2xl">
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            <span>Este chat atingiu o limite máximo de contexto.</span>
+            <button
+              onClick={() => navigate('/')}
+              className="shrink-0 text-sidebar-primary hover:text-sidebar-primary/80 font-medium transition-colors"
+            >
+              Criar novo chat →
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-background px-4 py-4">
@@ -241,7 +270,10 @@ export function ChatInput({
             ))}
 
             {pendingFiles.map((f) => {
-              const isZip = f.name.toLowerCase().endsWith('.zip')
+              const nameLower = f.name.toLowerCase()
+              const isZip = nameLower.endsWith('.zip')
+              const isPdf = nameLower.endsWith('.pdf')
+              const isImage = /\.(jpe?g|png|webp)$/.test(nameLower)
               return (
                 <div
                   key={f.name}
@@ -249,6 +281,10 @@ export function ChatInput({
                 >
                   {isZip ? (
                     <Archive className="size-3 shrink-0 text-amber-500/70" />
+                  ) : isPdf ? (
+                    <FileType className="size-3 shrink-0 text-red-400/70" />
+                  ) : isImage ? (
+                    <Image className="size-3 shrink-0 text-emerald-500/70" />
                   ) : (
                     <FileText className="size-3 shrink-0 text-sidebar-primary/70" />
                   )}
@@ -332,7 +368,7 @@ export function ChatInput({
                   }}
                 >
                   <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
-                  Anexar arquivo (texto, .zip)
+                  Anexar arquivos
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
@@ -409,7 +445,7 @@ export function ChatInput({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.cds,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.sql,.zip"
+              accept=".txt,.md,.cds,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.sql,.zip,.pdf,.jpg,.jpeg,.png,.webp,.docx,.xlsx,.xls,.csv"
               className="hidden"
               onChange={handleFileInput}
             />
@@ -422,7 +458,7 @@ export function ChatInput({
               onInput={handleInput}
               placeholder={
                 isDragging
-                  ? 'Solte o arquivo .txt ou .zip aqui…'
+                  ? 'Solte o arquivo aqui…'
                   : skills.length > 0
                     ? 'Faça uma pergunta ou use /skill para ativar uma skill…'
                     : 'Faça uma pergunta sobre SAP…'

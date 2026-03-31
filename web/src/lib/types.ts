@@ -29,6 +29,24 @@ export interface AttachmentMeta {
   size_bytes: number
   source_zip?: string
   zip_path?: string
+  file_type?: 'text' | 'pdf' | 'image' | 'zip'
+  mime_type?: string
+}
+
+export interface PdfUploadResponse {
+  id: number
+  filename: string
+  size_bytes: number
+  file_type: 'pdf'
+}
+
+export interface ImageUploadResponse {
+  id: number
+  filename: string
+  size_bytes: number
+  file_type: 'image'
+  width: number
+  height: number
 }
 
 export interface ZipUploadResponse {
@@ -60,6 +78,8 @@ export interface ChatMessage {
 export interface Session {
   id: string
   title: string
+  customTitle?: string
+  pinned?: boolean
   createdAt: string
 }
 

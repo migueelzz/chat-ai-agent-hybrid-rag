@@ -19,7 +19,7 @@ def _resolve_llm() -> ChatOpenAI:
     provider = (settings.llm_provider or "").strip().lower()
     if provider == "google":
         base_url = _GOOGLE_BASE_URL
-        # Remove prefixo "gemini/" que é específico do formato LiteLLM
+        
         model = settings.llm_model.removeprefix("gemini/")
     else:
         base_url = settings.llm_base_url or None

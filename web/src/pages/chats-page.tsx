@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MessageSquare, Search, SquarePen, Trash2 } from 'lucide-react'
+import { MessageSquare, Pencil, Pin, PinOff, Search, SquarePen, Trash2 } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +18,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSessions } from '@/hooks/use-sessions'
 import { formatRelativeDate } from '@/lib/sessions'
+import type { Session } from '@/lib/types'
 
 function ChatsSkeleton() {
   return (
@@ -41,23 +42,67 @@ function ChatsSkeleton() {
   )
 }
 
+function RenameInput({
+  initialValue,
+  onConfirm,
+  onCancel,
+}: {
+  initialValue: string
+  onConfirm: (v: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState(initialValue)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [])
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); onConfirm(value) }
+        if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+      }}
+      onBlur={() => onConfirm(value)}
+      onClick={(e) => e.stopPropagation()}
+      className="flex-1 min-w-0 bg-transparent text-sm text-foreground/80 outline-none border-b border-border/60 focus:border-sidebar-primary/60 truncate"
+      maxLength={100}
+    />
+  )
+}
+
 export function ChatsPage() {
   const navigate = useNavigate()
-  const { sessions, deleteSession, deleteSessions } = useSessions()
+  const { sessions, deleteSession, deleteSessions, renameSession, togglePin } = useSessions()
   const [query, setQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [pendingDelete, setPendingDelete] = useState<string[] | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { setLoading(false) }, [])
   useEffect(() => { setSelectedIds(new Set()) }, [query])
 
+  const displayTitle = (s: Session) => s.customTitle ?? s.title
+
   const filtered = sessions.filter((s) =>
-    s.title.toLowerCase().includes(query.toLowerCase()),
+    displayTitle(s).toLowerCase().includes(query.toLowerCase()),
   )
 
-  const grouped = filtered.reduce<Record<string, typeof sessions>>((acc, s) => {
-    const label = formatRelativeDate(s.createdAt)
+  // Pinned first, then by date (sessions already sorted newest-first in storage)
+  const sorted = [...filtered].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1
+    if (!a.pinned && b.pinned) return 1
+    return 0
+  })
+
+  const grouped = sorted.reduce<Record<string, Session[]>>((acc, s) => {
+    const label = s.pinned ? 'Fixadas' : formatRelativeDate(s.createdAt)
     ;(acc[label] ??= []).push(s)
     return acc
   }, {})
@@ -79,6 +124,11 @@ export function ChatsPage() {
     }
     setSelectedIds(new Set())
     setPendingDelete(null)
+  }
+
+  const handleRenameConfirm = (id: string, value: string) => {
+    renameSession(id, value)
+    setRenamingId(null)
   }
 
   const pendingCount = pendingDelete?.length ?? 0
@@ -157,7 +207,7 @@ export function ChatsPage() {
                       <div
                         key={s.id}
                         className="group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-muted/40 transition-colors"
-                        onClick={() => navigate(`/chat/${s.id}`)}
+                        onClick={() => renamingId !== s.id && navigate(`/chat/${s.id}`)}
                       >
                         <Checkbox
                           checked={selectedIds.has(s.id)}
@@ -166,21 +216,58 @@ export function ChatsPage() {
                           className="shrink-0"
                         />
                         <MessageSquare className="size-3.5 shrink-0 text-muted-foreground/50" />
-                        <span className="flex-1 truncate text-sm text-foreground/80 group-hover:text-foreground">
-                          {s.title}
-                        </span>
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setPendingDelete([s.id])
-                          }}
-                          title="Remover"
-                        >
-                          <Trash2 className="size-3" />
-                        </Button>
+
+                        {renamingId === s.id ? (
+                          <RenameInput
+                            initialValue={displayTitle(s)}
+                            onConfirm={(v) => handleRenameConfirm(s.id, v)}
+                            onCancel={() => setRenamingId(null)}
+                          />
+                        ) : (
+                          <span className="flex-1 truncate text-sm text-foreground/80 group-hover:text-foreground">
+                            {displayTitle(s)}
+                          </span>
+                        )}
+
+                        {/* Action buttons — hidden until hover */}
+                        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-7 text-muted-foreground hover:text-foreground"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setRenamingId(renamingId === s.id ? null : s.id)
+                            }}
+                            title="Renomear"
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className={`size-7 hover:text-foreground ${s.pinned ? 'text-sidebar-primary opacity-100' : 'text-muted-foreground'}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              togglePin(s.id)
+                            }}
+                            title={s.pinned ? 'Desafixar' : 'Fixar'}
+                          >
+                            {s.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-7 text-muted-foreground hover:text-destructive"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setPendingDelete([s.id])
+                            }}
+                            title="Remover"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>

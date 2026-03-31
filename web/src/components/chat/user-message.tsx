@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Copy, Check, FileText } from 'lucide-react'
+import { Copy, Check, FileText, Archive, FileType2, Image } from 'lucide-react'
 import type { AttachmentMeta } from '@/lib/types'
 
 function formatBytes(bytes: number): string {
@@ -27,16 +27,29 @@ export function UserMessage({ content, attachments }: UserMessageProps) {
       {/* Arquivos enviados com esta pergunta — abaixo do balão */}
       {attachments && attachments.length > 0 && (
         <div className="flex flex-wrap justify-end gap-1.5 max-w-[85%]">
-          {attachments.map((att) => (
-            <div
-              key={att.id}
-              className="flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground"
-            >
-              <FileText className="size-3 shrink-0 text-sidebar-primary/70" />
-              <span className="max-w-36 truncate">{att.filename}</span>
-              <span className="text-muted-foreground/50">· {formatBytes(att.size_bytes)}</span>
-            </div>
-          ))}
+          {attachments.map((att) => {
+            const ft = att.file_type
+            const Icon =
+              ft === 'zip' ? Archive :
+              ft === 'pdf' ? FileType2 :
+              ft === 'image' ? Image :
+              FileText
+            const iconColor =
+              ft === 'zip' ? 'text-amber-500/70' :
+              ft === 'pdf' ? 'text-red-500/70' :
+              ft === 'image' ? 'text-green-500/70' :
+              'text-sidebar-primary/70'
+            return (
+              <div
+                key={att.id}
+                className="flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground"
+              >
+                <Icon className={`size-3 shrink-0 ${iconColor}`} />
+                <span className="max-w-36 truncate">{att.filename}</span>
+                <span className="text-muted-foreground/50">· {formatBytes(att.size_bytes)}</span>
+              </div>
+            )
+          })}
         </div>
       )}
 

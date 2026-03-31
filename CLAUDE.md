@@ -175,7 +175,7 @@ data: {"type": "token"|"thinking"|"tool_start"|"tool_end"|"error"|"done", "conte
 | `documents` | Seções/capítulos dos PDFs |
 | `chunks` | Unidades de retrieval com embedding (vector 384d) + FTS + trigram |
 | `entities` | Entidades SAP extraídas (tabelas, transações, CDS) |
-| `session_files` | Arquivos TXT enviados pelo usuário por sessão |
+| `session_files` | Arquivos de sessão: TXT, ZIP extraído, PDF (texto extraído) e imagem (BYTEA) |
 | `skills` | Skills especializadas (CRUD via /skills) |
 | `aliases` | Sinônimos SAP para expansão de queries |
 | `sap_catalog` | Catálogo de transações e tabelas conhecidas |
@@ -186,6 +186,16 @@ data: {"type": "token"|"thinking"|"tool_start"|"tool_end"|"error"|"done", "conte
 - **Sempre** usar `await session.execute(text(...), {...})` com parâmetros nomeados (prevenção de SQL injection).
 - `await db.commit()` apenas em routers, nunca dentro de tools ou retrieval.
 - Migrations novas: criar `scripts/migration_<descricao>.sql` com `IF NOT EXISTS` / `IF NOT EXISTS column` para idempotência.
+
+### Atualização obrigatória do schema
+
+**Toda vez que houver qualquer mudança estrutural no banco de dados** (nova tabela, nova coluna, novo índice, alteração de tipo, remoção):
+
+1. **Perguntar ao usuário antes de modificar** — nunca aplicar mudanças no schema sem confirmação explícita.
+2. **Criar `scripts/migration_<descricao>.sql`** — script incremental idempotente para bancos existentes.
+3. **Atualizar `scripts/00_schema.sql`** — manter o schema completo sincronizado com a estrutura real, usando `ADD COLUMN IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`.
+
+> O `00_schema.sql` é a fonte de verdade para novas instalações (executado automaticamente pelo Docker). Se ele divergir da estrutura real, novos ambientes ficam quebrados.
 
 ---
 
@@ -201,6 +211,8 @@ LLM_BASE_URL=              # vazio = OpenAI direto; preencher para LiteLLM proxy
 LLM_MAX_TOKENS=4096
 LLM_TEMPERATURE=0.3
 MCP_ENABLED=false          # true para ativar SAP MCP servers (requer Node.js)
+LLM_HAS_VISION=true        # false para modelos sem suporte a vision (image_url)
+MAX_PDF_PAGES=30            # máximo de páginas extraídas por anexo PDF de sessão
 ```
 
 O backend é agnóstico ao provider LLM — qualquer API compatível com OpenAI funciona via `LLM_BASE_URL`.
@@ -235,7 +247,7 @@ psql -U atem -d atem_rag -f scripts/migration_<nome>.sql
 ## Segurança
 
 - **Filenames de upload**: sempre sanitizar com regex `[^a-zA-Z0-9\-_]` → `-` antes de persistir.
-- **Tamanho de uploads**: PDF sem limite definido no ingest (cuidado); TXT session files = 500 KB; Skills = 200 KB.
+- **Tamanho de uploads**: PDF (ingest RAG) sem limite definido (cuidado); TXT session files = 500 KB; PDF session files = 10 MB; Imagens session files = 5 MB; Skills = 200 KB.
 - **SQL**: usar exclusivamente `text()` com parâmetros nomeados — nunca f-string em queries.
 - **CORS**: origins fixas em `main.py` (`localhost:5173`). Adicionar domínio de produção antes do deploy.
 - **Identidade do LLM**: o `SYSTEM_PROMPT` proíbe revelar o modelo base — não remover essa seção.

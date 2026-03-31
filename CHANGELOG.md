@@ -5,6 +5,57 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-31 (correção de renderização de mensagem com PDF visual)
+
+### Corrigido
+- `app/routers/chat.py`: `_msg_to_model()` agora extrai apenas o bloco de texto de `HumanMessage` com conteúdo multimodal (lista `[{type:text,...},{type:image_url,...}]`), em vez de converter a lista para `str()` — eliminava o bug onde o balão da mensagem exibia o JSON de `image_url` (base64) ao recarregar o histórico de uma sessão com PDF de imagem
+
+---
+
+## [não lançado] — 2026-03-31 (correção de badges de attachment no histórico)
+
+### Corrigido
+- `app/routers/chat.py`: `upload_pdf_attachment` agora define `source_zip = safe_name` nas rows de páginas renderizadas como imagem, marcando-as como derivadas do PDF (não como imagens avulsas)
+- `app/routers/chat.py`: `upload_image_attachment` exclui páginas PDF renderizadas (`source_zip IS NOT NULL`) da contagem do limite de 3 imagens por sessão
+- `app/routers/chat.py`: `list_attachments` reescrito com UNION — retorna apenas uploads diretos (`source_zip IS NULL`) e agrega arquivos extraídos de ZIP em uma única entrada com `file_type='zip'`; páginas renderizadas de PDF (`source_zip IS NOT NULL AND zip_path IS NULL`) são omitidas da listagem
+
+---
+
+## [não lançado] — 2026-03-31 (renderização de páginas PDF sem texto para visão multimodal)
+
+### Adicionado
+- `app/attachments/pdf_processor.py`: função `_render_page_as_jpeg()` — renderiza páginas PDF sem texto suficiente (< 50 chars) como imagem JPEG usando PyMuPDF pixmap (2× escala); limite de 3 páginas renderizadas por PDF
+- `app/routers/chat.py`: `upload_pdf_attachment` agora insere páginas renderizadas como rows `file_type='image'` em `session_files`, injetando-as automaticamente no pipeline de visão multimodal
+
+### Alterado
+- `app/attachments/pdf_processor.py`: `extract_pdf_text()` retorna `tuple[str, list[bytes]]` em vez de `str` — o segundo elemento contém as imagens JPEG das páginas sem texto; PDFs puramente visuais recebem nota textual indicando que o conteúdo está nas imagens
+
+### Corrigido
+- PDFs compostos apenas de imagens (screenshots, scans) não geravam contexto útil — agora as páginas são renderizadas e enviadas ao LLM via visão multimodal
+
+---
+
+## [não lançado] — 2026-03-31 (suporte a anexos PDF e imagem com segurança)
+
+### Adicionado
+- `app/attachments/validators.py`: detecção de MIME via magic bytes (`filetype`), cross-check extensão×MIME real, sanitização de conteúdo contra prompt injection e sanitização de filename
+- `app/attachments/pdf_processor.py`: extração de texto de PDFs de sessão com PyMuPDF — rejeita PDFs protegidos por senha, PDFs com JavaScript embutido; limita a 30 páginas e 12.000 chars; envolve conteúdo em delimitadores anti-prompt-injection
+- `app/attachments/image_processor.py`: processamento de imagens com Pillow — proteção contra decompression bomb, remoção de EXIF, redimensionamento para 1024px, normalização para JPEG
+- `app/routers/chat.py`: endpoint `POST /chat/{id}/pdf-attachment` — upload de PDF como contexto de sessão (limite 10 MB, rate limit 10/min)
+- `app/routers/chat.py`: endpoint `POST /chat/{id}/image-attachment` — upload de imagem JPEG/PNG/WebP como contexto multimodal (limite 5 MB, máximo 3 imagens por sessão, rate limit 10/min)
+- `scripts/migration_pdf_image_support.sql`: migration aditiva e idempotente que adiciona `file_type`, `mime_type`, `image_data` à tabela `session_files` e torna `content` nullable
+
+### Alterado
+- `app/routers/chat.py`: `_load_session_files()` agora retorna `tuple[str, list]` — texto de contexto + lista de rows de imagem
+- `app/routers/chat.py`: `_stream_agent()` constrói `HumanMessage` com blocos multimodais quando há imagens e `LLM_HAS_VISION=true`; fallback de texto com metadados quando `LLM_HAS_VISION=false`
+- `app/routers/chat.py`: `GET /attachments` retorna `file_type` e `mime_type` em cada item
+- `app/config.py`: novos campos `llm_has_vision: bool = True` e `max_pdf_pages: int = 30`
+- `app/agent/prompts.py`: adicionada seção "ARQUIVOS ANEXADOS PELO USUÁRIO" instruindo o LLM a tratar conteúdo entre delimitadores como dados, não como instruções
+- `scripts/00_schema.sql`: colunas `file_type`, `mime_type`, `image_data` adicionadas ao `CREATE TABLE session_files` para novas instalações
+- `pyproject.toml`: adicionadas dependências `filetype>=1.2.0` e `Pillow>=10.0.0`
+
+---
+
 ## [não lançado] — 2026-03-30 (código completo obrigatório e mais extensões de attachment)
 
 ### Alterado

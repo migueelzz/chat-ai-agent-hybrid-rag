@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
-import { ArrowUp, Paperclip, FileText, X, Zap, Brain, Globe, Plus, Settings, Archive } from 'lucide-react'
+import { ArrowUp, Paperclip, FileText, X, Zap, Brain, Globe, Plus, Settings, Archive, FileType, Image } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -143,16 +143,27 @@ export function HomeInput({
     el.style.height = `${Math.min(el.scrollHeight, 180)}px`
   }
 
+  const TEXT_EXTENSIONS = ['.txt', '.md', '.cds', '.py', '.js', '.ts', '.tsx', '.jsx', '.json', '.xml', '.yaml', '.yml', '.sql']
+  const PDF_EXTENSIONS = ['.pdf']
+  const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
+  const OFFICE_EXTENSIONS = ['.docx', '.xlsx', '.xls', '.csv']
+
   const addFile = (file: File) => {
     const filename = file.name.toLowerCase()
-    const isZip = filename.endsWith('.zip')
-    const isTxt = filename.endsWith('.txt')
-    
-    if (!isZip && !isTxt) return
-    
-    if (isTxt && file.size > 500 * 1024) return // 500KB limit for TXT
-    if (isZip && file.size > 50 * 1024 * 1024) return // 50MB limit for ZIP
-    
+    const ext = '.' + (filename.split('.').pop() ?? '')
+    const isZip = ext === '.zip'
+    const isText = TEXT_EXTENSIONS.includes(ext)
+    const isPdf = PDF_EXTENSIONS.includes(ext)
+    const isImage = IMAGE_EXTENSIONS.includes(ext)
+    const isOffice = OFFICE_EXTENSIONS.includes(ext)
+
+    if (!isZip && !isText && !isPdf && !isImage && !isOffice) return
+    if (isText && file.size > 500 * 1024) return
+    if (isZip && file.size > 50 * 1024 * 1024) return
+    if (isPdf && file.size > 10 * 1024 * 1024) return
+    if (isImage && file.size > 5 * 1024 * 1024) return
+    if (isOffice && file.size > 10 * 1024 * 1024) return
+
     setPendingFiles((prev) => {
       if (prev.some((f) => f.name === file.name)) return prev
       return [...prev, file]
@@ -270,7 +281,10 @@ export function HomeInput({
             ))}
 
             {pendingFiles.map((f) => {
-              const isZip = f.name.toLowerCase().endsWith('.zip')
+              const nameLower = f.name.toLowerCase()
+              const isZip = nameLower.endsWith('.zip')
+              const isPdf = nameLower.endsWith('.pdf')
+              const isImage = /\.(jpe?g|png|webp)$/.test(nameLower)
               return (
                 <div
                   key={f.name}
@@ -278,6 +292,10 @@ export function HomeInput({
                 >
                   {isZip ? (
                     <Archive className="size-3 shrink-0 text-amber-500/70" />
+                  ) : isPdf ? (
+                    <FileType className="size-3 shrink-0 text-red-400/70" />
+                  ) : isImage ? (
+                    <Image className="size-3 shrink-0 text-emerald-500/70" />
                   ) : (
                     <FileText className="size-3 shrink-0 text-sidebar-primary/70" />
                   )}
@@ -304,7 +322,7 @@ export function HomeInput({
           onInput={handleInput}
           placeholder={
             isDragging
-              ? 'Solte o arquivo .txt ou .zip aqui…'
+              ? 'Solte o arquivo aqui…'
               : skills.length > 0
                 ? 'Como posso ajudar? Use / para ativar uma skill…'
                 : 'Como posso ajudar com SAP hoje?'
@@ -336,7 +354,7 @@ export function HomeInput({
                 }}
               >
                 <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
-                Anexar arquivo (.txt, .zip)
+                Anexar arquivos
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />
@@ -413,7 +431,7 @@ export function HomeInput({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt,.zip"
+            accept=".txt,.md,.cds,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.sql,.zip,.pdf,.jpg,.jpeg,.png,.webp"
             className="hidden"
             onChange={handleFileInput}
           />

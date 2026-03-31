@@ -26,6 +26,22 @@ export function removeSession(id: string): void {
   )
 }
 
+export function renameSession(id: string, customTitle: string): void {
+  const sessions = getSessions()
+  const idx = sessions.findIndex((s) => s.id === id)
+  if (idx === -1) return
+  sessions[idx] = { ...sessions[idx], customTitle: customTitle.trim() || undefined }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions))
+}
+
+export function togglePin(id: string): void {
+  const sessions = getSessions()
+  const idx = sessions.findIndex((s) => s.id === id)
+  if (idx === -1) return
+  sessions[idx] = { ...sessions[idx], pinned: !sessions[idx].pinned }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions))
+}
+
 export function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr)
   const now = new Date()

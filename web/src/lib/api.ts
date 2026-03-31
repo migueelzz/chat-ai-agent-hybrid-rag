@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AttachmentMeta, CreateSessionResponse, DailyCalls, ErrorLog, HistoryResponse, MessageChunk, MetricsSummary, ProviderBudget, SkillMeta, ZipUploadResponse } from './types'
+import type { AttachmentMeta, CreateSessionResponse, DailyCalls, ErrorLog, HistoryResponse, ImageUploadResponse, MessageChunk, MetricsSummary, PdfUploadResponse, ProviderBudget, SkillMeta, ZipUploadResponse } from './types'
 
 const baseURL = '/api'
 
@@ -36,6 +36,20 @@ export async function uploadZipAttachment(sessionId: string, file: File): Promis
   const form = new FormData()
   form.append('file', file)
   const { data } = await http.post<ZipUploadResponse>(`/chat/${sessionId}/zip-attachment`, form)
+  return data
+}
+
+export async function uploadPdfAttachment(sessionId: string, file: File): Promise<PdfUploadResponse> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await http.post<PdfUploadResponse>(`/chat/${sessionId}/pdf-attachment`, form)
+  return data
+}
+
+export async function uploadImageAttachment(sessionId: string, file: File): Promise<ImageUploadResponse> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await http.post<ImageUploadResponse>(`/chat/${sessionId}/image-attachment`, form)
   return data
 }
 
