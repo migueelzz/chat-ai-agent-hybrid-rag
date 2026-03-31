@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 30       # máximo de páginas extraídas por anexo PDF de sessão
 
     # Chat limits
-    max_chat_messages: int = 100  # máximo de pares human+assistant por sessão
+    max_chat_messages: int = 100   # máximo de pares human+assistant por sessão
+    max_history_messages: int = 40  # janela deslizante enviada ao LLM (não afeta persistência)
 
     # Compressão de imagens
     image_jpeg_quality: int = 80      # 1-95; 80 mantém qualidade visual com menor tamanho

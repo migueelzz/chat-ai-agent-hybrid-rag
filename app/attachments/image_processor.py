@@ -97,6 +97,6 @@ def build_image_content_block(data: bytes, mime_type: str) -> dict:
         "type": "image_url",
         "image_url": {
             "url": f"data:{mime_type};base64,{b64}",
-            "detail": "high",
+            "detail": "auto",
         },
     }

@@ -149,25 +149,35 @@ async def create_session(request: Request):  # noqa: ARG001
 # ---------------------------------------------------------------------------
 
 async def _load_session_files(
-    session_id: str, db: AsyncSession
+    session_id: str, db: AsyncSession, only_recent_seconds: int | None = None
 ) -> tuple[str, list]:
     """
     Carrega arquivos da sessão e retorna:
     - bloco de texto com contexto de arquivos TXT/PDF/ZIP
     - lista de rows de imagens para injeção multimodal
+
+    Se `only_recent_seconds` for fornecido, retorna apenas arquivos criados
+    nos últimos N segundos (usado em mensagens subsequentes para evitar
+    re-injetar arquivos que já estão no histórico do checkpointer).
     """
+    where_extra = ""
+    params: dict = {"sid": session_id}
+    if only_recent_seconds is not None:
+        where_extra = "AND created_at > NOW() - (INTERVAL '1 second' * :secs)"
+        params["secs"] = only_recent_seconds
+
     result = await db.execute(
-        text("""
+        text(f"""
             SELECT filename, content, file_type, mime_type, image_data, source_zip, zip_path
             FROM session_files
-            WHERE session_id = :sid
+            WHERE session_id = :sid {where_extra}
             ORDER BY
                 CASE WHEN source_zip IS NULL THEN 0 ELSE 1 END,
                 source_zip NULLS FIRST,
                 zip_path NULLS LAST,
                 created_at
         """),
-        {"sid": session_id},
+        params,
     )
     rows = result.fetchall()
     if not rows:
@@ -247,7 +257,11 @@ async def _stream_agent(
         ctx_parts: list[str] = []
 
         # 1. Arquivos da sessão (texto) + imagens para multimodal
-        files_ctx, image_rows = await _load_session_files(session_id, db)
+        # Primeira mensagem: injeta tudo. Mensagens seguintes: só arquivos recentes
+        # (uploads feitos nos últimos 60s antes desta mensagem), evitando re-injetar
+        # arquivos que já estão no histórico do checkpointer.
+        recent_only = None if msg_count == 0 else 60
+        files_ctx, image_rows = await _load_session_files(session_id, db, only_recent_seconds=recent_only)
         if files_ctx:
             ctx_parts.append(files_ctx)
 

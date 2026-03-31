@@ -36,7 +36,6 @@ def _format_context(ctx: dict) -> str:
 
     parts: list[str] = [
         f"<!--SOURCES_META:{json.dumps(sources_meta, ensure_ascii=False)}-->",
-        f"**Consulta:** {ctx['query']}\n",
     ]
     char_budget = 12_000  # ~3000 tokens
 

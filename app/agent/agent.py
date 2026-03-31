@@ -1,7 +1,7 @@
 import re
 
 from langgraph.prebuilt import create_react_agent
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from app.agent.memory import get_checkpointer  # sync após init
@@ -42,12 +42,30 @@ _EXCESS_SPACES = re.compile(r' {15,}')
 def _compress_skill_history(state: dict) -> dict:
     """
     pre_model_hook — executado antes de cada chamada ao LLM.
-    Retorna {"llm_input_messages": ...} com ToolMessages de skills antigas
-    comprimidas ao título, economizando tokens sem alterar o estado persistido.
-    A skill mais recente mantém o conteúdo completo (com espaços excessivos colapsados).
+
+    Aplica duas otimizações de tokens sem alterar o estado persistido no checkpointer:
+
+    1. Janela deslizante: mantém apenas as últimas `max_history_messages` mensagens,
+       iniciando sempre em um HumanMessage (evita corte no meio de um turno).
+       Garante custo linear em vez de quadrático conforme a conversa cresce.
+
+    2. Compressão de skills antigas: ToolMessages de use_skill anteriores à mais
+       recente são truncadas a 600 chars, preservando instruções de orquestração
+       mas descartando o conteúdo completo já processado.
     """
     messages = state.get("messages", [])
 
+    # 1. Janela deslizante (não altera checkpointer)
+    limit = settings.max_history_messages
+    if len(messages) > limit:
+        trimmed = messages[-limit:]
+        # Garantir que não cortamos no meio de um turno — iniciar em HumanMessage
+        first_human = next(
+            (i for i, m in enumerate(trimmed) if isinstance(m, HumanMessage)), 0
+        )
+        messages = trimmed[first_human:]
+
+    # 2. Compressão de skills antigas
     skill_indices = [
         i for i, m in enumerate(messages)
         if isinstance(m, ToolMessage) and getattr(m, 'name', '') == 'use_skill'

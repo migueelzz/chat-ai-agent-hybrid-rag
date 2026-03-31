@@ -5,6 +5,19 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-31 (otimizações de custo de tokens)
+
+### Adicionado
+- `app/config.py`: campo `max_history_messages: int = 40` — janela deslizante de histórico enviada ao LLM (não afeta persistência no checkpointer)
+
+### Alterado
+- `app/routers/chat.py`: `_load_session_files()` aceita `only_recent_seconds` — na primeira mensagem injeta todos os arquivos; nas seguintes injeta apenas arquivos criados nos últimos 60s, eliminando a re-injeção desnecessária em sessões longas (impacto: até 95% menos tokens de contexto de arquivos em sessões de 20+ turnos)
+- `app/agent/agent.py`: `_compress_skill_history` (pre_model_hook) agora aplica janela deslizante de `max_history_messages` antes da compressão de skills — garante custo linear por turno em vez de quadrático
+- `app/attachments/image_processor.py`: `build_image_content_block()` usa `"detail": "auto"` em vez de `"detail": "high"` — modelo decide resolução adequada; reduz de ~765 para ~85 tokens por imagem quando alta resolução não é necessária
+- `app/agent/tools.py`: `_format_context()` remove linha `**Consulta:** {query}` do output do RAG — a query já está no HumanMessage, era redundância pura
+
+---
+
 ## [não lançado] — 2026-03-31 (compressão de imagens e páginas PDF)
 
 ### Adicionado
