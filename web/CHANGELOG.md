@@ -5,6 +5,20 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-31 (simplificação da página de analytics)
+
+### Removido
+- `src/pages/analytics-page.tsx`: cards de "Gasto total" e "Total de tokens" (dependiam de dados LiteLLM)
+- `src/pages/analytics-page.tsx`: seção "Budget por provider" com `BudgetCard` (chamava endpoint removido)
+- `src/lib/api.ts`: funções `getMetricsSummary()` (agora retorna `null` em caso de erro) e `getMetricsBudget()` removida
+- `src/lib/types.ts`: interfaces `MetricsSummary` (campos LiteLLM) e `ProviderBudget` removidas
+
+### Alterado
+- `src/pages/analytics-page.tsx`: página reescrita para mostrar apenas dados locais — 3 cards (chamadas, latência média, erros) + gráfico de barras diário + tabela de erros; design clean mantido
+- `src/lib/types.ts`: `MetricsSummary` simplificada para `{ total_calls, avg_latency_ms, error_count }` (sem `total_spend` e `total_tokens`)
+
+---
+
 ## [não lançado] — 2026-03-31 (sem mudanças de frontend para compressão de imagens)
 
 Otimizações de compressão aplicadas apenas no backend (`image_processor.py` e `pdf_processor.py`). Sem impacto em interfaces ou comportamento visível ao usuário.

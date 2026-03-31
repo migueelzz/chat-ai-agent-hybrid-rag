@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AttachmentMeta, CreateSessionResponse, DailyCalls, ErrorLog, HistoryResponse, ImageUploadResponse, MessageChunk, MetricsSummary, PdfUploadResponse, ProviderBudget, SkillMeta, ZipUploadResponse } from './types'
+import type { AttachmentMeta, CreateSessionResponse, DailyCalls, ErrorLog, HistoryResponse, ImageUploadResponse, MessageChunk, MetricsSummary, PdfUploadResponse, SkillMeta, ZipUploadResponse } from './types'
 
 const baseURL = '/api'
 
@@ -97,17 +97,12 @@ export async function getMetricsCalls(days: number): Promise<DailyCalls[]> {
   }
 }
 
-export async function getMetricsSummary(days: number): Promise<MetricsSummary> {
-  const { data } = await http.get<MetricsSummary>('/metrics/summary', { params: { days } })
-  return data
-}
-
-export async function getMetricsBudget(): Promise<ProviderBudget[]> {
+export async function getMetricsSummary(days: number): Promise<MetricsSummary | null> {
   try {
-    const { data } = await http.get<ProviderBudget[]>('/metrics/provider')
+    const { data } = await http.get<MetricsSummary>('/metrics/summary', { params: { days } })
     return data
   } catch {
-    return []
+    return null
   }
 }
 

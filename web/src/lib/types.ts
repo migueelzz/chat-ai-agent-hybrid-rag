@@ -117,16 +117,6 @@ export interface MetricsSummary {
   total_calls: number
   avg_latency_ms: number
   error_count: number
-  total_spend: number | null
-  total_tokens: number | null
-}
-
-export interface ProviderBudget {
-  provider: string
-  budget_limit: number | null
-  spend: number
-  time_period: string | null
-  budget_reset_at: string | null
 }
 
 export interface ErrorLog {

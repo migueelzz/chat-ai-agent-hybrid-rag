@@ -5,6 +5,15 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-31 (remoção de chamadas LiteLLM das métricas)
+
+### Removido
+- `app/routers/metrics.py`: endpoint `GET /metrics/provider` (chamava LiteLLM `/provider/budgets`) removido inteiramente
+- `app/routers/metrics.py`: função `_fetch_litellm_spend()` e chamada LiteLLM de `/spend/logs` removidas; endpoint `GET /metrics/summary` agora retorna apenas dados locais (DB)
+- `app/models/metrics.py`: modelos `MetricsSummary` (campos `total_spend`, `total_tokens`) e `ProviderBudget` removidos — substituído por `MetricsSummary` simplificado (apenas `total_calls`, `avg_latency_ms`, `error_count`)
+
+---
+
 ## [não lançado] — 2026-03-31 (otimizações de custo de tokens)
 
 ### Adicionado
