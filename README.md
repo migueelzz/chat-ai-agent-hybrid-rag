@@ -24,6 +24,8 @@ nano .env
 ### 2. Executar com Docker
 
 ```bash
+docker compose build --no-cache
+
 docker compose up -d
 
 # acesse em: http://localhost:3000

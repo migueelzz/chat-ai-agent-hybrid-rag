@@ -5,6 +5,20 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-31 (arquivos Office, limite de contexto)
+
+### Adicionado
+- `app/attachments/office_processor.py`: novo módulo de extração de texto para `.docx`, `.xlsx`, `.xls` e `.csv` — delimitadores anti-prompt-injection, truncamento em 12.000 chars, `sanitize_content_for_llm()` aplicado; `extract_for_ext()` como dispatcher por extensão
+- `app/routers/chat.py`: `OFFICE_EXTENSIONS` e `MAX_OFFICE_BYTES` (10 MB); `upload_attachment` roteia `.docx/.xlsx/.xls/.csv` para `office_processor.extract_for_ext()` com limite de 10 MB (vs. 500 KB para texto plano)
+- `app/config.py`: campo `max_chat_messages: int = 100` — par de mensagens humano+assistente que define o teto de contexto por sessão
+- `app/routers/chat.py`: `_stream_agent()` verifica `len(state.values["messages"]) >= max_chat_messages * 2` antes de processar; retorna SSE `{"type":"error","content":"CONTEXT_LIMIT_REACHED"}` + `done` imediatamente quando limite atingido
+- `pyproject.toml`: dependências `python-docx>=1.1.0`, `openpyxl>=3.1.0`, `xlrd>=2.0.0`
+
+### Alterado
+- `app/routers/chat.py`: `ALLOWED_EXTENSIONS` expandido com `.docx`, `.xlsx`, `.xls`, `.csv`
+
+---
+
 ## [não lançado] — 2026-03-31 (correção de renderização de mensagem com PDF visual)
 
 ### Corrigido

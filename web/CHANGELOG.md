@@ -5,6 +5,21 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-31 (rename/pin de chats, limite de contexto, arquivos Office)
+
+### Adicionado
+- `src/lib/sessions.ts`: campos `customTitle?: string` e `pinned?: boolean` em `Session`; funções `renameSession(id, customTitle)` e `togglePin(id)` que persistem no localStorage
+- `src/hooks/use-sessions.ts`: `renameSession` e `togglePin` expostos pelo hook; lista de sessões ordenada com pinadas primeiro
+- `src/pages/chats-page.tsx`: botão Pin/PinOff (lucide) por chat para fixar/desafixar; modo de rename inline (lápis → input → confirma com Enter ou blur); exibe `customTitle ?? title`
+- `src/pages/chat-page.tsx`: header exibe `customTitle ?? title`; botão lápis ao lado do título abre input de rename inline
+
+### Alterado
+- `src/hooks/use-chat.ts`: constante `MAX_MESSAGES = 100`; `isBlocked` derivado contando mensagens `role === 'human'`; handler SSE mapeia `CONTEXT_LIMIT_REACHED` para estado de bloqueio
+- `src/components/chat/chat-input.tsx`: quando `isBlocked`, renderiza banner "Este chat atingiu o limite máximo de contexto" com link "Criar novo chat →" navegando para `/`; input e botão de envio desabilitados
+- `src/components/chat/chat-input.tsx` e `src/components/home/home-input.tsx`: atributo `accept` expandido com `.docx,.xlsx,.xls,.csv`; validação `addFile` aceita Office (≤ 10 MB); label do menu atualizado para "Anexar arquivo (texto, código, PDF, imagem, ZIP, Office)"
+
+---
+
 ## [não lançado] — 2026-03-31 (badges de anexos corretas no histórico)
 
 ### Corrigido

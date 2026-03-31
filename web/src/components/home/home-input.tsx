@@ -354,7 +354,7 @@ export function HomeInput({
                 }}
               >
                 <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
-                Anexar arquivos
+                Anexar arquivos ou fotos
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />
@@ -431,7 +431,7 @@ export function HomeInput({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt,.md,.cds,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.sql,.zip,.pdf,.jpg,.jpeg,.png,.webp"
+            accept=".txt,.md,.cds,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.sql,.zip,.pdf,.jpg,.jpeg,.png,.webp,.docx,.xlsx,.xls,.csv"
             className="hidden"
             onChange={handleFileInput}
           />

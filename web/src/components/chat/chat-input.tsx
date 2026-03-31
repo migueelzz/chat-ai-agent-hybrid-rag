@@ -368,7 +368,7 @@ export function ChatInput({
                   }}
                 >
                   <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
-                  Anexar arquivos
+                  Anexar arquivos ou fotos
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
