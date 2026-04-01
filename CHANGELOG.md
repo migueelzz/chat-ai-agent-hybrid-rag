@@ -5,6 +5,13 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-04-01
+
+### Alterado
+- `app/agent/agent.py`: renomeado `_compress_skill_history` → `_compress_tool_history`; estendida a compressão de ToolMessages antigas para `rag_search` (500 chars), `web_search` (400 chars) e `scrape_url` (400 chars), além do `use_skill` já existente (600 chars). Reduz custo de tokens em conversas longas com múltiplas chamadas de ferramenta.
+
+---
+
 ## [não lançado] — 2026-03-31 (reasoning/thinking display)
 
 ### Adicionado

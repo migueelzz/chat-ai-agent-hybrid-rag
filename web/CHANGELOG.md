@@ -5,6 +5,14 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-04-01
+
+### Alterado
+- `src/components/chat/chat-input.tsx`: botão de enviar e função `submit` agora permitem envio quando há arquivos anexados mesmo sem texto digitado
+- `src/components/home/home-input.tsx`: mesma correção aplicada ao input da home page
+
+---
+
 ## [não lançado] — 2026-03-31 (reasoning/thinking display)
 
 ### Adicionado

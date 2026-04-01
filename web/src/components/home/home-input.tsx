@@ -89,7 +89,8 @@ export function HomeInput({
 
   const submit = () => {
     const text = value.trim()
-    if (!text || loading) return
+    const hasFiles = pendingFiles.length > 0
+    if ((!text && !hasFiles) || loading) return
     if (text.length > LONG_TEXT_THRESHOLD) {
       convertToFile()
       return
@@ -439,7 +440,7 @@ export function HomeInput({
           <Button
             size="icon"
             onClick={() => submit()}
-            disabled={!value.trim() || loading}
+            disabled={(!value.trim() && pendingFiles.length === 0) || loading}
             className="gap-1.5"
           >
             <ArrowUp className="size-3.5" />

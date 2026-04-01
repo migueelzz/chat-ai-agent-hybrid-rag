@@ -53,8 +53,19 @@ def _resolve_llm() -> ChatOpenAI:
 # Reduz tokens desperdiçados em mensagens de ferramentas que o agente recebe de volta.
 _EXCESS_SPACES = re.compile(r' {15,}')
 
+# Limite de caracteres ao comprimir ToolMessages antigas de cada ferramenta.
+# Ferramentas que retornam grandes blocos de texto têm custo relevante por token
+# (Gemini cobra por token mesmo com janela de 1M). Manter conteúdo completo de
+# chamadas antigas não agrega valor — o LLM já processou e gerou resposta a partir delas.
+_TOOL_COMPRESS_LIMITS: dict[str, int] = {
+    'use_skill':  600,   # skills são longas; 600 chars preserva instruções de orquestração
+    'rag_search': 600,   # RAG retorna até ~12.000 chars; comprimir antigas reduz custo
+    'web_search': 400,   # resultados de busca web são volumosos
+    'scrape_url': 400,   # conteúdo de página pode ser muito grande
+}
 
-def _compress_skill_history(state: dict) -> dict:
+
+def _compress_tool_history(state: dict) -> dict:
     """
     pre_model_hook — executado antes de cada chamada ao LLM.
 
@@ -64,9 +75,10 @@ def _compress_skill_history(state: dict) -> dict:
        iniciando sempre em um HumanMessage (evita corte no meio de um turno).
        Garante custo linear em vez de quadrático conforme a conversa cresce.
 
-    2. Compressão de skills antigas: ToolMessages de use_skill anteriores à mais
-       recente são truncadas a 600 chars, preservando instruções de orquestração
-       mas descartando o conteúdo completo já processado.
+    2. Compressão de ToolMessages antigas: para cada ferramenta em _TOOL_COMPRESS_LIMITS,
+       todas as ocorrências exceto a mais recente são truncadas ao limite de chars definido.
+       A mais recente de cada ferramenta é mantida intacta (com colapso de espaços excessivos).
+       Isso cobre use_skill, rag_search, web_search e scrape_url.
     """
     messages = state.get("messages", [])
 
@@ -80,15 +92,31 @@ def _compress_skill_history(state: dict) -> dict:
         )
         messages = trimmed[first_human:]
 
-    # 2. Compressão de skills antigas
-    skill_indices = [
-        i for i, m in enumerate(messages)
-        if isinstance(m, ToolMessage) and getattr(m, 'name', '') == 'use_skill'
-    ]
-    if not skill_indices:
-        return {"llm_input_messages": messages}
+    # 2. Coletar índices de cada ferramenta comprimível
+    tool_indices: dict[str, list[int]] = {}
+    for i, msg in enumerate(messages):
+        if isinstance(msg, ToolMessage):
+            name = getattr(msg, 'name', '') or ''
+            if name in _TOOL_COMPRESS_LIMITS:
+                tool_indices.setdefault(name, []).append(i)
 
-    to_compress = set(skill_indices[:-1])  # todas menos a última
+    # Mapeia índice → limite de chars (todas as ocorrências menos a última de cada ferramenta)
+    to_compress: dict[int, int] = {}
+    for name, indices in tool_indices.items():
+        for idx in indices[:-1]:  # todas menos a última
+            to_compress[idx] = _TOOL_COMPRESS_LIMITS[name]
+
+    if not to_compress:
+        # Nada a comprimir — ainda aplica colapso de espaços nas mensagens de ferramenta
+        result = []
+        for msg in messages:
+            if isinstance(msg, ToolMessage) and getattr(msg, 'name', '') in _TOOL_COMPRESS_LIMITS:
+                content = _EXCESS_SPACES.sub(' ', str(msg.content))
+                result.append(ToolMessage(content=content, tool_call_id=msg.tool_call_id, name=msg.name))
+            else:
+                result.append(msg)
+        return {"llm_input_messages": result}
+
     result = []
     for i, msg in enumerate(messages):
         if not isinstance(msg, ToolMessage):
@@ -97,10 +125,10 @@ def _compress_skill_history(state: dict) -> dict:
 
         content = str(msg.content)
         if i in to_compress:
-            # Mantém os primeiros 600 chars para preservar instruções de fluxo/orquestração
-            content = content[:600].rstrip() + "\n\n[... conteúdo resumido — skill já processada ...]"
+            char_limit = to_compress[i]
+            content = content[:char_limit].rstrip() + "\n\n[... conteúdo resumido — já processado pelo agente ...]"
         else:
-            # Colapsa padding excessivo de espaços na skill mais recente
+            # Colapsa padding excessivo de espaços na mensagem mais recente
             content = _EXCESS_SPACES.sub(' ', content)
 
         result.append(ToolMessage(
@@ -129,6 +157,6 @@ async def get_agent():
             tools=tools,
             checkpointer=checkpointer,
             prompt=SYSTEM_PROMPT,
-            pre_model_hook=_compress_skill_history,
+            pre_model_hook=_compress_tool_history,
         )
     return _agent

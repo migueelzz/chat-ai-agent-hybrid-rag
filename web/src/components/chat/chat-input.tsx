@@ -97,7 +97,8 @@ export function ChatInput({
 
   const submit = (text?: string) => {
     const textToSend = (text ?? value).trim()
-    if (!textToSend || disabled) return
+    const hasFiles = pendingFiles && pendingFiles.length > 0
+    if ((!textToSend && !hasFiles) || disabled) return
     if (textToSend.length > LONG_TEXT_THRESHOLD && onAddFile) {
       convertToFile(textToSend)
       return
@@ -486,7 +487,7 @@ export function ChatInput({
               <Button
                 size="icon-sm"
                 onClick={() => submit()}
-                disabled={!value.trim() || disabled}
+                disabled={(!value.trim() && (!pendingFiles || pendingFiles.length === 0)) || disabled}
                 title="Enviar (Enter)"
                 aria-label="Enviar mensagem"
                 className="shrink-0"
