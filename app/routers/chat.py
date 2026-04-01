@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.agent import get_agent
 from app.config import settings
 from app.limiter import limiter
-from app.agent.context_var import db_session_var
+from app.agent.context_var import db_session_var, session_id_var
 from app.agent.memory import get_checkpointer
 from app.database import get_db
 from app.attachments import pdf_processor, image_processor, office_processor
@@ -31,6 +31,9 @@ from app.models.chat import (
     HistoryResponse,
     MessageChunk,
     MessageRequest,
+    PatchSessionRequest,
+    SessionMeta,
+    UpsertSessionRequest,
 )
 
 router = APIRouter()
@@ -145,6 +148,118 @@ async def create_session(request: Request):  # noqa: ARG001
 
 
 # ---------------------------------------------------------------------------
+# GET /chat/sessions — lista metadados de todas as sessões
+# ---------------------------------------------------------------------------
+
+@router.get("/sessions", response_model=list[SessionMeta])
+async def list_sessions(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        text("""
+            SELECT id, title, custom_title, pinned, created_at, updated_at
+            FROM chat_sessions
+            ORDER BY created_at DESC
+        """)
+    )
+    rows = result.fetchall()
+    return [
+        SessionMeta(
+            id=r.id,
+            title=r.title,
+            custom_title=r.custom_title,
+            pinned=r.pinned,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+        )
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# PUT /chat/sessions/{session_id} — cria ou atualiza metadados (upsert completo)
+# ---------------------------------------------------------------------------
+
+@router.put("/sessions/{session_id}", response_model=SessionMeta, status_code=200)
+async def upsert_session(session_id: str, body: UpsertSessionRequest, db: AsyncSession = Depends(get_db)):
+    now = datetime.now(timezone.utc)
+    try:
+        created_at = datetime.fromisoformat(body.created_at.replace("Z", "+00:00"))
+    except ValueError:
+        created_at = now
+    result = await db.execute(
+        text("""
+            INSERT INTO chat_sessions (id, title, custom_title, pinned, created_at, updated_at)
+            VALUES (:id, :title, :custom_title, :pinned, :created_at, :updated_at)
+            ON CONFLICT (id) DO UPDATE SET
+                title        = EXCLUDED.title,
+                custom_title = EXCLUDED.custom_title,
+                pinned       = EXCLUDED.pinned,
+                updated_at   = EXCLUDED.updated_at
+            RETURNING id, title, custom_title, pinned, created_at, updated_at
+        """),
+        {
+            "id": session_id,
+            "title": body.title,
+            "custom_title": body.custom_title,
+            "pinned": body.pinned,
+            "created_at": created_at,
+            "updated_at": now,
+        },
+    )
+    row = result.fetchone()
+    await db.commit()
+    return SessionMeta(
+        id=row.id,
+        title=row.title,
+        custom_title=row.custom_title,
+        pinned=row.pinned,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /chat/sessions/{session_id} — atualiza campos parcialmente (rename/pin)
+# ---------------------------------------------------------------------------
+
+@router.patch("/sessions/{session_id}", response_model=SessionMeta)
+async def patch_session(session_id: str, body: PatchSessionRequest, db: AsyncSession = Depends(get_db)):
+    now = datetime.now(timezone.utc)
+    # model_fields_set: apenas campos explicitamente enviados no JSON
+    has_custom_title = "custom_title" in body.model_fields_set
+    result = await db.execute(
+        text("""
+            UPDATE chat_sessions SET
+                title        = COALESCE(:title, title),
+                custom_title = CASE WHEN :has_custom_title THEN :custom_title ELSE custom_title END,
+                pinned       = COALESCE(:pinned, pinned),
+                updated_at   = :updated_at
+            WHERE id = :id
+            RETURNING id, title, custom_title, pinned, created_at, updated_at
+        """),
+        {
+            "id": session_id,
+            "title": body.title,
+            "has_custom_title": has_custom_title,
+            "custom_title": body.custom_title,
+            "pinned": body.pinned,
+            "updated_at": now,
+        },
+    )
+    row = result.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Sessão não encontrada.")
+    await db.commit()
+    return SessionMeta(
+        id=row.id,
+        title=row.title,
+        custom_title=row.custom_title,
+        pinned=row.pinned,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+# ---------------------------------------------------------------------------
 # POST /chat/{session_id}/message — envia mensagem (streaming SSE)
 # ---------------------------------------------------------------------------
 
@@ -237,6 +352,7 @@ async def _stream_agent(
     web_search_enabled: bool = True,
 ) -> AsyncGenerator[str, None]:
     token = db_session_var.set(db)
+    token_sid = session_id_var.set(session_id)
     _is_document = bool(_DOC_INTENT_RE.search(message))
     last_used_skill: str | None = None
     _in_code_block = False  # rastreia se o stream está dentro de um bloco ```
@@ -449,6 +565,7 @@ async def _stream_agent(
         yield f"data: {payload.model_dump_json()}\n\n"
     finally:
         db_session_var.reset(token)
+        session_id_var.reset(token_sid)
 
 
 @router.post("/{session_id}/message")
@@ -526,8 +643,10 @@ _CHECKPOINT_TABLES = ["checkpoint_writes", "checkpoint_blobs", "checkpoints"]
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     await db.execute(text("DELETE FROM session_files WHERE session_id = :sid"), {"sid": session_id})
+    await db.execute(text("DELETE FROM session_output_files WHERE session_id = :sid"), {"sid": session_id})
     await db.execute(text("DELETE FROM chat_usage WHERE session_id = :sid"), {"sid": session_id})
     await db.execute(text("DELETE FROM chat_errors WHERE session_id = :sid"), {"sid": session_id})
+    await db.execute(text("DELETE FROM chat_sessions WHERE id = :sid"), {"sid": session_id})
     for tbl in _CHECKPOINT_TABLES:
         try:
             await db.execute(text(f"DELETE FROM {tbl} WHERE thread_id = :sid"), {"sid": session_id})
@@ -546,8 +665,10 @@ async def bulk_delete_sessions(body: BulkDeleteRequest, db: AsyncSession = Depen
         return
     ids = body.session_ids
     await db.execute(text("DELETE FROM session_files WHERE session_id = ANY(:ids)"), {"ids": ids})
+    await db.execute(text("DELETE FROM session_output_files WHERE session_id = ANY(:ids)"), {"ids": ids})
     await db.execute(text("DELETE FROM chat_usage WHERE session_id = ANY(:ids)"), {"ids": ids})
     await db.execute(text("DELETE FROM chat_errors WHERE session_id = ANY(:ids)"), {"ids": ids})
+    await db.execute(text("DELETE FROM chat_sessions WHERE id = ANY(:ids)"), {"ids": ids})
     for tbl in _CHECKPOINT_TABLES:
         try:
             await db.execute(text(f"DELETE FROM {tbl} WHERE thread_id = ANY(:ids)"), {"ids": ids})
@@ -590,6 +711,64 @@ async def extract_document(request: Request, session_id: str, req: ExtractDocume
         document = req.content
 
     return {"document": document}
+
+
+# ---------------------------------------------------------------------------
+# GET /chat/{session_id}/output-files — lista arquivos gerados pelo agente
+# ---------------------------------------------------------------------------
+
+class OutputFileMeta(BaseModel):
+    path: str
+    size: int
+    created_at: datetime
+
+
+@router.get("/{session_id}/output-files", response_model=list[OutputFileMeta])
+async def get_output_files(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        text("""
+            SELECT path, LENGTH(content) AS size, created_at
+            FROM session_output_files
+            WHERE session_id = :sid
+            ORDER BY created_at
+        """),
+        {"sid": session_id},
+    )
+    rows = result.fetchall()
+    return [OutputFileMeta(path=r.path, size=r.size, created_at=r.created_at) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# GET /chat/{session_id}/output-zip — baixa arquivos gerados como ZIP
+# ---------------------------------------------------------------------------
+
+@router.get("/{session_id}/output-zip")
+async def download_output_zip(session_id: str, db: AsyncSession = Depends(get_db)):
+    import io
+    import zipfile as _zipfile
+
+    result = await db.execute(
+        text("SELECT path, content FROM session_output_files WHERE session_id = :sid ORDER BY path"),
+        {"sid": session_id},
+    )
+    rows = result.fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Nenhum arquivo gerado encontrado para esta sessão.")
+
+    buf = io.BytesIO()
+    with _zipfile.ZipFile(buf, mode="w", compression=_zipfile.ZIP_DEFLATED) as zf:
+        for row in rows:
+            zf.writestr(row.path, row.content)
+    buf.seek(0)
+
+    safe_prefix = re.sub(r"[^a-zA-Z0-9]", "", session_id[:8])
+    filename = f"{safe_prefix}-output.zip"
+
+    return StreamingResponse(
+        iter([buf.read()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------------------------------------------------------------------------

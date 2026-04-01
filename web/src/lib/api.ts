@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AttachmentMeta, CreateSessionResponse, DailyCalls, ErrorLog, HistoryResponse, ImageUploadResponse, MessageChunk, MetricsSummary, PdfUploadResponse, SkillMeta, ZipUploadResponse } from './types'
+import type { AttachmentMeta, CreateSessionResponse, DailyCalls, ErrorLog, HistoryResponse, ImageUploadResponse, MessageChunk, MetricsSummary, OutputFileMeta, PdfUploadResponse, SessionMeta, SkillMeta, ZipUploadResponse } from './types'
 
 const baseURL = '/api'
 
@@ -10,6 +10,33 @@ const http = axios.create({
 export async function createSession(): Promise<CreateSessionResponse> {
   const { data } = await http.post<CreateSessionResponse>('/chat/sessions')
   return data
+}
+
+export async function listSessions(): Promise<SessionMeta[]> {
+  try {
+    const { data } = await http.get<SessionMeta[]>('/chat/sessions')
+    return data
+  } catch {
+    return []
+  }
+}
+
+export async function upsertSession(
+  id: string,
+  payload: { title: string; custom_title?: string | null; pinned?: boolean; created_at: string }
+): Promise<void> {
+  try {
+    await http.put(`/chat/sessions/${id}`, payload)
+  } catch { /* best-effort */ }
+}
+
+export async function patchSession(
+  id: string,
+  patch: { title?: string; custom_title?: string | null; pinned?: boolean }
+): Promise<void> {
+  try {
+    await http.patch(`/chat/sessions/${id}`, patch)
+  } catch { /* best-effort */ }
 }
 
 export async function getHistory(sessionId: string): Promise<HistoryResponse> {
@@ -86,6 +113,30 @@ export async function toggleSkill(id: number): Promise<SkillMeta> {
 export async function extractDocument(sessionId: string, content: string): Promise<string> {
   const { data } = await http.post<{ document: string }>(`/chat/${sessionId}/extract-document`, { content })
   return data.document
+}
+
+export async function getOutputFiles(sessionId: string): Promise<OutputFileMeta[]> {
+  try {
+    const { data } = await http.get<OutputFileMeta[]>(`/chat/${sessionId}/output-files`)
+    return data
+  } catch {
+    return []
+  }
+}
+
+export async function downloadOutputZip(sessionId: string): Promise<void> {
+  const res = await fetch(`${baseURL}/chat/${sessionId}/output-zip`)
+  if (!res.ok) throw new Error(`Erro ao baixar ZIP: ${res.status}`)
+  const blob = await res.blob()
+  const safePrefix = sessionId.slice(0, 8).replace(/[^a-zA-Z0-9]/g, '')
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${safePrefix}-output.zip`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 export async function getMetricsCalls(days: number): Promise<DailyCalls[]> {

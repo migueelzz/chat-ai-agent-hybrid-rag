@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 
 from app.agent.memory import get_checkpointer  # sync após init
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.tools import rag_search, web_search, scrape_url, use_skill, zip_file_explorer
+from app.agent.tools import rag_search, web_search, scrape_url, use_skill, zip_file_explorer, write_output_file
 from app.agent.mcp_tools import get_mcp_tools
 from app.config import settings
 
@@ -31,6 +31,7 @@ def _resolve_llm() -> ChatOpenAI:
         max_tokens=settings.llm_max_tokens,
         temperature=settings.llm_temperature,
         streaming=True,
+        max_retries=0,  # falha rápida — sem retry automático no proxy LiteLLM
     )
 
 
@@ -106,7 +107,7 @@ async def get_agent():
     if _agent is None:
         llm = _resolve_llm()
         checkpointer = get_checkpointer()
-        tools = [rag_search, web_search, scrape_url, use_skill, zip_file_explorer]
+        tools = [rag_search, web_search, scrape_url, use_skill, zip_file_explorer, write_output_file]
         if settings.mcp_enabled:
             tools += get_mcp_tools()
         _agent = create_react_agent(

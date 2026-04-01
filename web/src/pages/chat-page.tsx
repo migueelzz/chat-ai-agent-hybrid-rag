@@ -5,7 +5,7 @@ import { useChat } from '@/hooks/use-chat'
 import { useSessions } from '@/hooks/use-sessions'
 import { MessageList } from '@/components/chat/message-list'
 import { ChatInput } from '@/components/chat/chat-input'
-import { extractDocument, getSkills } from '@/lib/api'
+import { downloadOutputZip, extractDocument, getSkills } from '@/lib/api'
 import { getThinkingEnabled, setThinkingEnabled, getWebSearchEnabled, setWebSearchEnabled } from '@/lib/prefs'
 import { getSessions } from '@/lib/sessions'
 import type { SkillMeta } from '@/lib/types'
@@ -158,6 +158,7 @@ export function ChatPage() {
         thinkingEnabled={thinkingEnabled}
         onExtractDocument={handleExtractDocument}
         onSendNextStep={(skillName) => sendNextStep(skillName, webSearchEnabled)}
+        onDownloadZip={() => void downloadOutputZip(sessionId!)}
       />
 
       <ChatInput

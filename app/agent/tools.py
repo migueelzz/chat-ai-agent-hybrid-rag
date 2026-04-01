@@ -8,7 +8,7 @@ import httpx
 from langchain_core.tools import tool
 from sqlalchemy import text
 
-from app.agent.context_var import db_session_var
+from app.agent.context_var import db_session_var, session_id_var
 from app.retrieval.context import build_context
 
 
@@ -178,6 +178,45 @@ async def use_skill(skill_name: str) -> str:
     if len(content) > _MAX_SKILL_CHARS:
         content = content[:_MAX_SKILL_CHARS] + "\n\n[... skill truncada após 8000 caracteres ...]"
     return f"[SKILL: {skill.title}]\n\n{content}"
+
+
+# ---------------------------------------------------------------------------
+# Ferramenta 5 — Write Output File
+# ---------------------------------------------------------------------------
+
+@tool
+async def write_output_file(path: str, content: str) -> str:
+    """Escreve ou atualiza um arquivo de saída da sessão para disponibilizar ao usuário como download ZIP.
+    Use para criar, modificar ou gerar arquivos quando o usuário quiser baixar o resultado.
+    path: caminho relativo do arquivo (ex: 'src/components/Button.tsx', 'README.md').
+    content: conteúdo completo e funcional do arquivo — sem placeholders ou omissões."""
+    session = db_session_var.get()
+    if session is None:
+        return "Erro interno: sessão de banco de dados não disponível."
+
+    sid = session_id_var.get()
+    if sid is None:
+        return "Erro interno: session_id não disponível."
+
+    path = path.strip().lstrip("/")
+    if not path:
+        return "Erro: caminho do arquivo não pode ser vazio."
+
+    try:
+        await session.execute(
+            text("""
+                INSERT INTO session_output_files (session_id, path, content)
+                VALUES (:sid, :path, :content)
+                ON CONFLICT (session_id, path) DO UPDATE SET
+                    content    = EXCLUDED.content,
+                    created_at = NOW()
+            """),
+            {"sid": sid, "path": path, "content": content},
+        )
+        await session.commit()
+        return f"Arquivo '{path}' gravado com sucesso ({len(content)} caracteres)."
+    except Exception as exc:
+        return f"Erro ao gravar arquivo '{path}': {exc}"
 
 
 # ---------------------------------------------------------------------------

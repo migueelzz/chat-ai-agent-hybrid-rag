@@ -5,6 +5,38 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-31 (ZIP generation, PDF download, sticky copy button)
+
+### Adicionado
+- `scripts/00_schema.sql` + `scripts/migration_session_output_files.sql`: tabela `session_output_files` para arquivos gerados pelo agente (download como ZIP)
+- `app/agent/context_var.py`: `session_id_var` — context var para propagar session_id até as tools
+- `app/agent/tools.py`: ferramenta `write_output_file(path, content)` — agente grava arquivos de saída na DB; upsert por `(session_id, path)`
+- `app/agent/agent.py`: `write_output_file` registrada na lista de tools do agente
+- `app/agent/prompts.py`: seção "GERAÇÃO DE ARQUIVOS PARA DOWNLOAD" no SYSTEM_PROMPT
+- `app/routers/chat.py`: `GET /chat/{session_id}/output-files` (lista metadados) e `GET /chat/{session_id}/output-zip` (download ZIP em memória)
+
+### Alterado
+- `app/routers/chat.py`: DELETE + bulk-delete agora também apagam de `session_output_files`; `_stream_agent` seta `session_id_var` para tools
+
+---
+
+## [não lançado] — 2026-03-31 (sessions persistence, skills over-triggering, retry)
+
+### Adicionado
+- `scripts/00_schema.sql` + `scripts/migration_chat_sessions.sql`: tabela `chat_sessions` para persistir metadados de sessão (título, custom_title, pinned) no banco — resolve perda de sessões ao trocar de navegador
+- `app/models/chat.py`: modelos `SessionMeta`, `UpsertSessionRequest`, `PatchSessionRequest`
+- `app/routers/chat.py`: `GET /chat/sessions` (lista sessões), `PUT /chat/sessions/{id}` (upsert), `PATCH /chat/sessions/{id}` (rename/pin parcial)
+- `scripts/migration_update_skill_descriptions.sql`: atualiza descriptions das skills CDS no banco para reduzir falso-positivos
+
+### Alterado
+- `app/agent/agent.py`: `max_retries=0` no `ChatOpenAI` — sem retry automático no proxy LiteLLM; falha rápida evita carga em cascata
+- `app/agent/prompts.py`: Etapa 1.5 reescrita com critério restritivo — skills só ativam com intenção explícita de análise completa/documentação; perguntas pontuais e refatorações respondem diretamente via RAG
+- `app/routers/chat.py`: DELETE + bulk-delete agora também apagam de `chat_sessions`
+- `skill-cds-documentation/cds-structural-analysis.md`: descrição refatorada — remove gatilhos amplos como "quais campos essa CDS entrega?"
+- `skill-cds-documentation/cds-doc-analysis.md`: descrição refatorada — mantém apenas gatilhos explícitos de análise completa/documentação
+
+---
+
 ## [não lançado] — 2026-03-31 (remoção de chamadas LiteLLM das métricas)
 
 ### Removido

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createSession, getSkills } from '@/lib/api'
+import { createSession, getSkills, upsertSession } from '@/lib/api'
 import { addSession } from '@/lib/sessions'
 import { getThinkingEnabled, setThinkingEnabled, getWebSearchEnabled, setWebSearchEnabled } from '@/lib/prefs'
 import { HomeInput } from '@/components/home/home-input'
@@ -36,6 +36,7 @@ export function HomePage() {
     try {
       const { session_id, created_at } = await createSession()
       addSession(session_id, text, created_at)
+      void upsertSession(session_id, { title: text.length > 60 ? text.slice(0, 60) + '…' : text, created_at })
       navigate(`/chat/${session_id}`, {
         state: { firstMessage: text, pendingFiles: files ?? [], skillNames: skillNames ?? [], webSearchEnabled: wsEnabled ?? webSearchEnabled },
       })

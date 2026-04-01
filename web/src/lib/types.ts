@@ -108,6 +108,21 @@ export interface SkillMeta {
   created_at: string
 }
 
+export interface OutputFileMeta {
+  path: string
+  size: number
+  created_at: string
+}
+
+export interface SessionMeta {
+  id: string
+  title: string
+  custom_title: string | null
+  pinned: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface DailyCalls {
   date: string
   calls: number

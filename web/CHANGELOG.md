@@ -5,6 +5,48 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 
 ---
 
+## [não lançado] — 2026-03-31 (upload múltiplo de skills)
+
+### Adicionado
+- `src/pages/skills-page.tsx`: upload de múltiplas skills ao mesmo tempo via seleção ou drag-and-drop; progresso exibido como "Enviando X de Y…"; arquivos inválidos e erros são reportados sem interromper os demais
+
+---
+
+## [não lançado] — 2026-03-31 (persistência de sessões cross-browser)
+
+### Corrigido
+- `src/pages/home-page.tsx`: ao criar nova sessão, chama `upsertSession` para persistir no banco — sessões criadas agora aparecem em outros navegadores
+- `src/hooks/use-sessions.ts`: ao montar com DB vazio, sincroniza todas as sessões do localStorage para o banco (migração única) — sessões anteriores passam a ser visíveis cross-browser
+
+---
+
+## [não lançado] — 2026-03-31 (sticky copy button, ZIP download, PDF direto)
+
+### Adicionado
+- `src/components/chat/assistant-message.tsx`: botão "Copiar" agora usa wrapper `sticky top-2 h-0 overflow-visible` — permanece visível no topo do bloco ao rolar a página em códigos longos
+- `src/lib/types.ts`: interface `OutputFileMeta`
+- `src/lib/api.ts`: `getOutputFiles()` e `downloadOutputZip()` — integração com novos endpoints de saída
+- `src/hooks/use-chat.ts`: estado `hasOutputFiles`; detecta `write_output_file` no stream e ao carregar histórico
+- `src/pages/chat-page.tsx`: botão "Download ZIP" aparece no header quando `hasOutputFiles === true`
+
+### Alterado
+- `src/lib/download.ts`: `downloadAsPdf()` reescrita com `jsPDF + html2canvas` (imports dinâmicos) — download direto sem popup de impressão
+- `web/package.json`: + `jspdf`, `html2canvas`
+
+---
+
+## [não lançado] — 2026-03-31 (sessions persistence cross-browser)
+
+### Adicionado
+- `src/lib/types.ts`: interface `SessionMeta` (espelho do modelo backend)
+- `src/lib/api.ts`: `listSessions()`, `upsertSession()`, `patchSession()` — chamadas para os novos endpoints de sessão
+- `src/lib/sessions.ts`: `syncSessionsFromBackend()` — converte `SessionMeta[]` do backend para `Session[]` e sobrescreve o cache localStorage
+
+### Alterado
+- `src/hooks/use-sessions.ts`: ao montar, sincroniza com backend via `listSessions()` (localStorage permanece como cache imediato); `addSession()` chama `upsertSession()`; `renameSession()` e `togglePin()` chamam `patchSession()` para persistir no banco
+
+---
+
 ## [não lançado] — 2026-03-31 (simplificação da página de analytics)
 
 ### Removido

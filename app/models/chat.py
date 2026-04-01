@@ -35,3 +35,25 @@ class HistoryMessage(BaseModel):
 class HistoryResponse(BaseModel):
     session_id: str
     messages: list[HistoryMessage]
+
+
+class SessionMeta(BaseModel):
+    id: str
+    title: str
+    custom_title: str | None
+    pinned: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class UpsertSessionRequest(BaseModel):
+    title: str
+    custom_title: str | None = None
+    pinned: bool = False
+    created_at: str  # ISO string do frontend
+
+
+class PatchSessionRequest(BaseModel):
+    title: str | None = None
+    custom_title: str | None = None
+    pinned: bool | None = None

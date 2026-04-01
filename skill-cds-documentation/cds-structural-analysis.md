@@ -4,11 +4,10 @@ description: >
   Skill especializada na análise estrutural de CDS Views ABAP. Executa as etapas 0 a 5
   da análise: ficha inicial, classificação do tipo, fonte principal de dados, matriz de
   entidades envolvidas, mapeamento de relacionamentos e catálogo de campos entregues.
-  Use esta skill SEMPRE que o usuário precisar entender a estrutura de uma CDS — mesmo
-  que não peça análise completa. Ative quando o usuário perguntar: "quais campos essa
-  CDS entrega?", "de onde vêm os dados?", "quais tabelas essa view usa?", "o que é essa
-  entidade?", "qual o tipo dessa CDS?", ou quando colar um DDL source e quiser saber o
-  que há dentro. É a primeira skill a executar em qualquer análise de CDS.
+  Use quando o usuário pedir análise estrutural completa ou iniciar documentação de uma
+  CDS desconhecida. NÃO use para perguntas pontuais sobre campos, annotations ou sintaxe
+  — responda diretamente com RAG nesses casos. É a primeira fase de qualquer análise
+  completa de CDS.
 ---
 
 # Skill: Análise Estrutural de CDS (Etapas 0–5)

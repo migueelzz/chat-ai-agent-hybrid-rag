@@ -1,17 +1,14 @@
 ---
 name: cds-doc-analysis
 description: >
-  Skill orquestradora para análise completa de CDS Views ABAP sem documentação. Coordena
-  automaticamente em sequência as quatro skills especializadas: análise estrutural,
-  comportamental, inferência de contexto e geração do documento final. Use esta skill
-  SEMPRE que o usuário pedir análise completa ou documentação de uma CDS — mesmo que
-  não use esses termos exatos. Ative quando o usuário: colar código-fonte de uma CDS e
-  pedir análise, perguntar "o que esta CDS faz?", pedir para documentar uma CDS, pedir
-  para entender uma view desconhecida, mencionar "CDS sem documentação", "CDS legada",
-  "reverse engineering de CDS", "gerar documentação de CDS", "analisar CDS", "documentar
-  view ABAP", "entender esta view", "o que essa CDS retorna?", ou compartilhar um DDL
-  source esperando explicação funcional ou técnica. Para análises parciais (ex: "só
-  quero os campos"), use diretamente a skill especializada correspondente.
+  Skill orquestradora para análise completa e documentação de CDS Views ABAP. Coordena
+  automaticamente as quatro skills especializadas: análise estrutural, comportamental,
+  inferência de contexto e geração do documento final. Use APENAS quando o usuário pedir
+  explicitamente: análise completa, documentação técnica, reverse engineering ou
+  entendimento aprofundado de uma CDS desconhecida — com intenção clara de gerar
+  documentação. NÃO use para perguntas pontuais, refatorações, correções ou explicações
+  rápidas de sintaxe. Gatilhos válidos: "documenta essa CDS", "gera a documentação",
+  "CDS sem documentação", "reverse engineering de CDS", "análise completa desta view".
 ---
 
 # Skill: Análise Completa de CDS — Orquestrador

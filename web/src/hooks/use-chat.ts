@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { getHistory, streamMessage, uploadAttachment, uploadZipAttachment, uploadPdfAttachment, uploadImageAttachment, getAttachments } from '@/lib/api'
+import { getHistory, streamMessage, uploadAttachment, uploadZipAttachment, uploadPdfAttachment, uploadImageAttachment, getAttachments, getOutputFiles } from '@/lib/api'
 import type { AttachmentMeta, ChatMessage, ToolCall } from '@/lib/types'
 
 function uuid() {
@@ -13,6 +13,7 @@ export function useChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [isBlocked, setIsBlocked] = useState(false)
+  const [hasOutputFiles, setHasOutputFiles] = useState(false)
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([])
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const abortRef = useRef<AbortController | null>(null)
@@ -76,6 +77,9 @@ export function useChat(sessionId: string) {
     } catch {
       // sessão nova ou sem histórico
     }
+    // Verificar arquivos de saída gerados
+    const outputFiles = await getOutputFiles(sessionId).catch(() => [])
+    if (outputFiles.length > 0) setHasOutputFiles(true)
   }, [sessionId])
 
   const loadAttachments = useCallback(async () => {
@@ -115,7 +119,7 @@ export function useChat(sessionId: string) {
             const zipResponse = await uploadZipAttachment(sessionId, file)
             const zipMeta: AttachmentMeta = {
               id: Date.now(),
-              filename: `📦 ${zipResponse.zip_filename} (${zipResponse.files_extracted} arquivos)`,
+              filename: `${zipResponse.zip_filename} (${zipResponse.files_extracted} arquivos)`,
               size_bytes: zipResponse.total_size_bytes,
               source_zip: zipResponse.zip_filename,
               file_type: 'text',
@@ -196,6 +200,9 @@ export function useChat(sessionId: string) {
               prev.map((m) => (m.id === assistantId ? { ...m, toolCalls: currentTools } : m)),
             )
           } else if (chunk.type === 'tool_end' && chunk.tool_name) {
+            if (chunk.tool_name === 'write_output_file') {
+              setHasOutputFiles(true)
+            }
             const META_RE = /<!--SOURCES_META:(\[.*?\])-->/s
             let sourceDocs: Array<{ filename: string }> | undefined
             const metaMatch = META_RE.exec(chunk.content ?? '')
@@ -306,6 +313,7 @@ export function useChat(sessionId: string) {
     messages,
     isStreaming,
     isBlocked,
+    hasOutputFiles,
     attachments,
     pendingFiles,
     sendMessage,

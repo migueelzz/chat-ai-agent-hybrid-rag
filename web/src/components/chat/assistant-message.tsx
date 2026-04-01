@@ -40,6 +40,7 @@ interface AssistantMessageProps {
   onExtractDocument?: (content: string) => Promise<string>
   onSendNextStep?: (skillName: string) => void
   accumulatedDocument?: string
+  onDownloadZip?: () => void
 }
 
 function formatElapsed(ms: number): string {
@@ -97,7 +98,7 @@ function DownloadMenu({
   )
 }
 
-function CopyButton({ text, className }: { text: string; className?: string }) {
+function CopyButton({ text, className }: { text: string; className?: string; label?: string }) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -117,8 +118,9 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
   )
 }
 
-export function AssistantMessage({ message, onRetry, thinkingEnabled = true, onExtractDocument, onSendNextStep, accumulatedDocument }: AssistantMessageProps) {
+export function AssistantMessage({ message, onRetry, thinkingEnabled = true, onExtractDocument, onSendNextStep, accumulatedDocument, onDownloadZip }: AssistantMessageProps) {
   const { content, toolCalls = [], thinkingContent, isStreaming = false, hasError, elapsedMs, isDocument, nextSkill } = message
+  const hasZipOutput = !isStreaming && toolCalls.some((tc) => tc.name === 'write_output_file' && tc.status === 'done')
 
   // Timer em tempo real durante o streaming
   const [liveElapsed, setLiveElapsed] = useState(0)
@@ -187,10 +189,15 @@ export function AssistantMessage({ message, onRetry, thinkingEnabled = true, onE
                   const codeStr = (Array.isArray(raw) ? raw.join('') : String(raw ?? '')).replace(/\n$/, '')
                   return (
                     <div className="relative group/code">
-                      <CopyButton
-                        text={codeStr}
-                        className="absolute top-2 right-2 z-10 rounded p-1 opacity-0 group-hover/code:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 text-white/70 hover:text-white"
-                      />
+                      {/* Wrapper sticky de altura zero: mantém o botão visível enquanto o bloco
+                          estiver na tela, sem empurrar o conteúdo do SyntaxHighlighter */}
+                      <div className="sticky top-2 z-10 h-0 overflow-visible flex justify-end pr-2
+                                      opacity-0 group-hover/code:opacity-100 transition-opacity pointer-events-none">
+                        <CopyButton
+                          text={codeStr}
+                          className="pointer-events-auto rounded p-1 text-white/70 hover:text-white transition-colors"
+                        />
+                      </div>
                       <SyntaxHighlighter
                         style={oneDark}
                         language={lang?.[1] ?? 'text'}
@@ -213,13 +220,28 @@ export function AssistantMessage({ message, onRetry, thinkingEnabled = true, onE
       {/* Badges de fontes — abaixo do conteúdo da resposta */}
       <SourcesPanel toolCalls={toolCalls} />
 
+      {/* Link de download ZIP — aparece quando o agente gerou arquivos de saída */}
+      {hasZipOutput && onDownloadZip && (
+        <button
+          onClick={onDownloadZip}
+          className="mt-2 flex w-fit items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:border-border hover:bg-muted/60 transition-colors"
+        >
+          <Download className="size-3.5 shrink-0" />
+          Baixar arquivos gerados (.zip)
+        </button>
+      )}
+
       {/* Footer: timer sempre visível + ações no hover */}
       {(content || hasError || (!isLoadingInitial && isStreaming)) && (
         <div className="mt-1.5 flex items-center gap-1">
           <div className="flex items-center gap-1 transition-opacity">
             {content && !hasError && (
               <>
-                <CopyButton text={content} />
+                <CopyButton
+                  text={content}
+                  className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground hover:border-border transition-colors"
+                  label="Copiar"
+                />
                 {!isStreaming && <DownloadMenu content={content} isDocument={isDocument} onExtractDocument={onExtractDocument} />}
                 {/* Download da análise completa (acumulada) — aparece apenas na última fase */}
                 {!isStreaming && accumulatedDocument && (

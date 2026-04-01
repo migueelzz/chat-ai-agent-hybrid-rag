@@ -155,6 +155,41 @@ COMMENT ON COLUMN session_files.mime_type   IS 'MIME type validado server-side, 
 COMMENT ON COLUMN session_files.image_data  IS 'Dados binários da imagem processada (redimensionada, EXIF removido); NULL para text e pdf';
 
 -- ============================================================
+-- ARQUIVOS DE SAÍDA GERADOS PELO AGENTE (para download como ZIP)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS session_output_files (
+    id         SERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    path       TEXT NOT NULL,       -- caminho relativo, ex: "src/components/Button.tsx"
+    content    TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (session_id, path)       -- upsert por caminho — agent pode sobrescrever
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_output_files_session ON session_output_files (session_id);
+
+COMMENT ON TABLE  session_output_files      IS 'Arquivos criados/modificados pelo agente e disponibilizados para download como ZIP';
+COMMENT ON COLUMN session_output_files.path IS 'Caminho relativo do arquivo (ex: src/utils/helpers.ts)';
+
+-- ============================================================
+-- SESSÕES (metadados: título, pin, rename — persistência cross-browser)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id           TEXT PRIMARY KEY,
+    title        TEXT NOT NULL,
+    custom_title TEXT,
+    pinned       BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_created_at ON chat_sessions (created_at DESC);
+
+COMMENT ON TABLE  chat_sessions              IS 'Metadados de sessão persistidos no banco (título, pin, rename)';
+COMMENT ON COLUMN chat_sessions.custom_title IS 'Título personalizado pelo usuário; NULL usa o título automático';
+COMMENT ON COLUMN chat_sessions.pinned       IS 'TRUE = sessão fixada no topo da lista';
+
+-- ============================================================
 -- SKILLS (comportamentos especializados do agente)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS skills (

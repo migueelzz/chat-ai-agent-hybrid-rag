@@ -1,4 +1,4 @@
-import type { Session } from './types'
+import type { Session, SessionMeta } from './types'
 
 const STORAGE_KEY = 'atem_sessions'
 
@@ -40,6 +40,19 @@ export function togglePin(id: string): void {
   if (idx === -1) return
   sessions[idx] = { ...sessions[idx], pinned: !sessions[idx].pinned }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions))
+}
+
+/** Sobrescreve o cache local com os dados vindos do backend. */
+export function syncSessionsFromBackend(remoteSessions: SessionMeta[]): Session[] {
+  const synced: Session[] = remoteSessions.map((s) => ({
+    id: s.id,
+    title: s.title,
+    customTitle: s.custom_title ?? undefined,
+    pinned: s.pinned || undefined,
+    createdAt: s.created_at,
+  }))
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(synced))
+  return synced
 }
 
 export function formatRelativeDate(dateStr: string): string {

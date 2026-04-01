@@ -19,7 +19,7 @@ export function SkillsPage() {
   const [skills, setSkills] = useState<SkillMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [isDragging, setIsDragging] = useState(false)
-  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pendingDeleteSkill, setPendingDeleteSkill] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -31,43 +31,55 @@ export function SkillsPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const handleFile = async (file: File) => {
-    const ext = file.name.split('.').pop()?.toLowerCase()
-    if (!['md', 'txt'].includes(ext ?? '')) {
+  const handleFiles = async (files: File[]) => {
+    const valid = files.filter((f) => ['md', 'txt'].includes(f.name.split('.').pop()?.toLowerCase() ?? ''))
+    const invalid = files.length - valid.length
+
+    if (valid.length === 0) {
       setError('Apenas arquivos .md ou .txt são aceitos.')
       return
     }
+
     setError(null)
-    setUploading(true)
-    try {
-      const skill = await uploadSkill(file)
-      setSkills((prev) => {
-        const idx = prev.findIndex((s) => s.name === skill.name)
-        if (idx >= 0) {
-          const next = [...prev]
-          next[idx] = skill
-          return next
-        }
-        return [skill, ...prev]
-      })
-    } catch {
-      setError('Erro ao fazer upload da skill.')
-    } finally {
-      setUploading(false)
+    const errors: string[] = []
+
+    for (let i = 0; i < valid.length; i++) {
+      setUploadProgress({ current: i + 1, total: valid.length })
+      try {
+        const skill = await uploadSkill(valid[i])
+        setSkills((prev) => {
+          const idx = prev.findIndex((s) => s.name === skill.name)
+          if (idx >= 0) {
+            const next = [...prev]
+            next[idx] = skill
+            return next
+          }
+          return [skill, ...prev]
+        })
+      } catch {
+        errors.push(valid[i].name)
+      }
     }
+
+    setUploadProgress(null)
+
+    const parts: string[] = []
+    if (errors.length > 0) parts.push(`Erro ao enviar: ${errors.join(', ')}`)
+    if (invalid > 0) parts.push(`${invalid} arquivo(s) ignorado(s) — formato inválido`)
+    if (parts.length > 0) setError(parts.join(' · '))
   }
 
   const handleFileInput = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) void handleFile(file)
+    const files = Array.from(e.target.files ?? [])
+    if (files.length > 0) void handleFiles(files)
     e.target.value = ''
   }
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     setIsDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (file) void handleFile(file)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) void handleFiles(files)
   }
 
   const handleDelete = async (id: number) => {
@@ -131,6 +143,7 @@ export function SkillsPage() {
             ref={fileInputRef}
             type="file"
             accept=".md,.txt"
+            multiple
             className="hidden"
             onChange={handleFileInput}
           />
@@ -141,15 +154,17 @@ export function SkillsPage() {
                 isDragging ? 'text-sidebar-primary' : 'text-muted-foreground/40',
               )}
             />
-            {uploading ? (
-              <p className="text-sm text-muted-foreground">Enviando…</p>
+            {uploadProgress ? (
+              <p className="text-sm text-muted-foreground">
+                Enviando {uploadProgress.current} de {uploadProgress.total}…
+              </p>
             ) : (
               <>
                 <p className="text-sm font-medium text-muted-foreground">
-                  {isDragging ? 'Solte o arquivo aqui' : 'Arraste ou clique para fazer upload'}
+                  {isDragging ? 'Solte os arquivos aqui' : 'Arraste ou clique para fazer upload'}
                 </p>
                 <p className="text-xs text-muted-foreground/50">
-                  Arquivos .md ou .txt com frontmatter YAML (name + description)
+                  Um ou vários arquivos .md ou .txt com frontmatter YAML (name + description)
                 </p>
               </>
             )}

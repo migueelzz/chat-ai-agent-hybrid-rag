@@ -13,9 +13,10 @@ interface MessageListProps {
   thinkingEnabled?: boolean
   onExtractDocument?: (content: string) => Promise<string>
   onSendNextStep?: (skillName: string) => void
+  onDownloadZip?: () => void
 }
 
-export function MessageList({ messages, isStreaming, onRetry, thinkingEnabled = true, onExtractDocument, onSendNextStep }: MessageListProps) {
+export function MessageList({ messages, isStreaming, onRetry, thinkingEnabled = true, onExtractDocument, onSendNextStep, onDownloadZip }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const userScrolledRef = useRef(false)
@@ -86,6 +87,7 @@ export function MessageList({ messages, isStreaming, onRetry, thinkingEnabled = 
                 thinkingEnabled={thinkingEnabled}
                 onExtractDocument={onExtractDocument}
                 onSendNextStep={onSendNextStep}
+                onDownloadZip={onDownloadZip}
                 accumulatedDocument={
                   msg.isDocument && !msg.isStreaming && !msg.nextSkill && documentContents.length > 1
                     ? documentContents.join('\n\n---\n\n')
